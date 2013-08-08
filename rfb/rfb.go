@@ -25,16 +25,17 @@ package rfb
 
 import (
 	"bufio"
+	"crypto/des"
+	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	vnc "github.com/mitchellh/go-vnc"
 	"image"
+	"io"
 	"log"
 	"net"
 	"strconv"
 	"sync"
-
-	"crypto/rand"
-	"crypto/des"
 )
 
 const (
@@ -42,8 +43,8 @@ const (
 	v7 = "RFB 003.007\n"
 	v8 = "RFB 003.008\n"
 
-	authNone = 1
-	authVNC = 2
+	authNone     = 1
+	authVNC      = 2
 	statusOK     = 0
 	statusFailed = 1
 
@@ -129,6 +130,7 @@ type LockableImage struct {
 type Conn struct {
 	s      *Server
 	c      net.Conn
+	nc     net.Conn
 	br     *bufio.Reader
 	bw     *bufio.Writer
 	fbupc  chan FrameBufferUpdateRequest
@@ -137,9 +139,10 @@ type Conn struct {
 	// should only be mutated once during handshake, but then
 	// only read.
 	format PixelFormat
+
 	challenge []byte
-	password []byte
-	
+	password  []byte
+
 	feed chan *LockableImage
 	mu   sync.RWMutex // guards last (but not its pixels, just the variable)
 	last *LockableImage
@@ -177,6 +180,101 @@ func (c *Conn) readPadding(what string, size int) {
 	}
 }
 
+func (c *Conn) Proxy(dst string) (err error) {
+
+	defer c.c.Close()
+	defer c.nc.Close()
+	defer close(c.fbupc)
+	defer close(c.closec)
+	defer close(c.event)
+	defer func() {
+		e := recover()
+		if e != nil {
+			log.Printf("Client disconnect: %v", e)
+		}
+	}()
+
+	log.Printf("connect to real vnc")
+
+	nc, err := net.Dial("tcp", dst)
+	if err != nil {
+		return err
+	}
+
+	var auths []vnc.ClientAuth
+	auths = append(auths, new(ClientAuthVNC), new(vnc.ClientAuthNone))
+	con, err := vnc.Client(nc, &vnc.ClientConfig{Exclusive: true, Auth: auths})
+	if err != nil {
+		return err
+	}
+	c.nc = nc
+	log.Printf("%+v\n%+v\n", c.c, c.nc)
+	log.Printf("reading client init")
+
+	wantShared := c.readByte("shared-flag") != 0
+	_ = wantShared
+	log.Printf("AAAAA")
+	c.format = PixelFormat{
+		BPP:        con.PixelFormat.BPP,
+		Depth:      con.PixelFormat.Depth,
+		BigEndian:  0,
+		TrueColor:  1,
+		RedMax:     con.PixelFormat.RedMax,
+		GreenMax:   con.PixelFormat.GreenMax,
+		BlueMax:    con.PixelFormat.BlueMax,
+		RedShift:   con.PixelFormat.RedShift,
+		GreenShift: con.PixelFormat.GreenShift,
+		BlueShift:  con.PixelFormat.BlueShift,
+	}
+
+	// 6.3.2. ServerInit
+	width, height := c.dimensions()
+	c.w(uint16(width))
+	c.w(uint16(height))
+	//    c.w.(uint16(con.FrameBufferWidth))
+	//    c.w.(uint16(con.FrameBufferHeight))
+	c.w(c.format.BPP)
+	c.w(c.format.Depth)
+	c.w(c.format.BigEndian)
+	c.w(c.format.TrueColor)
+	c.w(c.format.RedMax)
+	c.w(c.format.GreenMax)
+	c.w(c.format.BlueMax)
+	c.w(c.format.RedShift)
+	c.w(c.format.GreenShift)
+	c.w(c.format.BlueShift)
+	c.w(uint8(0)) // pad1
+	c.w(uint8(0)) // pad2
+	c.w(uint8(0)) // pad3
+	serverName := fmt.Sprintf("vkvm %s", con.DesktopName[5:])
+	c.w(int32(len(serverName)))
+	c.bw.WriteString(serverName)
+	c.flush()
+
+	log.Printf("%+v\n%+v\n", c.c, c.nc)
+
+	var wg sync.WaitGroup
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
+		_, err := io.Copy(c.c, c.nc)
+		if err != nil {
+			log.Printf("%v\n", err)
+		}
+	}()
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
+		_, err := io.Copy(c.nc, c.c)
+		if err != nil {
+			log.Printf("%v\n", err)
+		}
+	}()
+	wg.Wait()
+	log.Printf("Client disconnected")
+	return
+}
+
 func (c *Conn) read(what string, v interface{}) {
 	err := binary.Read(c.br, binary.BigEndian, v)
 	if err != nil {
@@ -197,16 +295,17 @@ func (c *Conn) failf(format string, args ...interface{}) {
 }
 
 func (c *Conn) serve() {
-	defer c.c.Close()
-	defer close(c.fbupc)
-	defer close(c.closec)
-	defer close(c.event)
-	defer func() {
-		e := recover()
-		if e != nil {
-			log.Printf("Client disconnect: %v", e)
-		}
-	}()
+	//	defer c.c.Close()
+	//	defer c.nc.Close()
+	//	defer close(c.fbupc)
+	//	defer close(c.closec)
+	//	defer close(c.event)
+	//	defer func() {
+	//		e := recover()
+	//		if e != nil {
+	//			log.Printf("Client disconnect: %v", e)
+	//		}
+	//	}()
 
 	c.bw.WriteString("RFB 003.008\n")
 	c.flush()
@@ -233,41 +332,34 @@ func (c *Conn) serve() {
 			c.failf("client wanted auth type %d, not None or VNC", int(wanted))
 		}
 		if wanted == authVNC {
-		   	  log.Printf("client request auth %d, not None", int(wanted))
-			  challenge := make([]byte, 16)
-    			  _, err := rand.Read(challenge)
-    			  if err != nil {
-			     c.failf(err.Error())   
-			  }
-			  c.w(challenge)
-			  c.flush()
-			  pwd := []byte("njkcnjd")
-			  if len(pwd) > 8 {
-			     pwd = pwd[:8]
-			  }
-			  if x := len(pwd); x < 8 {
-			     for i :=  8 - x; i > 0; i-- {
-			     	 pwd = append(pwd, byte(0))
-			     } 
-			
-			     }
-			         
-			  enc, err := des.NewCipher(pwd)
-			  if err != nil {
-    			     c.failf(err.Error())
-			  }
-			  response := make([]byte, 16)
-			  enc.Encrypt(response, challenge)
-			  log.Printf("test: %s\n", response)
-			  wanted := c.readByte("7.2.2:client requested encrypted challenge")
-			  log.Printf("response %b\n", wanted)
-			  //c.read("7.2.2:client requested encrypted challenge")
-			  //c.flush()
-			  request := make([]byte, 8)
-			  c.read("7.2.2:response", &request)
-			  var passwd []byte
-			  enc.Decrypt(passwd, request)
-			  log.Printf("passwd: %s\n", passwd)						  
+			log.Printf("client request auth %d", int(wanted))
+			challenge := make([]byte, 16)
+			_, err := rand.Read(challenge)
+			if err != nil {
+				c.failf(err.Error())
+			}
+			c.w(challenge)
+			c.flush()
+			pwd := []byte("njkcnjd")
+			if len(pwd) > 8 {
+				pwd = pwd[:8]
+			}
+			if x := len(pwd); x < 8 {
+				for i := 8 - x; i > 0; i-- {
+					pwd = append(pwd, byte(0))
+				}
+
+			}
+
+			enc, err := des.NewCipher(pwd)
+			if err != nil {
+				c.failf(err.Error())
+			}
+			response := make([]byte, 16)
+			enc.Encrypt(response, challenge)
+			request := make([]byte, 16)
+			c.read("7.2.2:client challenge response", request)
+			log.Printf("%+v\n%+v\n", request, response)
 		}
 	} else {
 		// Old way. Just tell client we're doing no auth.
@@ -281,66 +373,40 @@ func (c *Conn) serve() {
 		c.flush()
 	}
 
-	log.Printf("reading client init")
-
 	// ClientInit
-	wantShared := c.readByte("shared-flag") != 0
-	_ = wantShared
 
-	c.format = PixelFormat{
-		BPP:        16,
-		Depth:      16,
-		BigEndian:  0,
-		TrueColour: 1,
-		RedMax:     0x1f,
-		GreenMax:   0x1f,
-		BlueMax:    0x1f,
-		RedShift:   0xa,
-		GreenShift: 0x5,
-		BlueShift:  0,
-	}
+	/*
+		for {
+			//log.Printf("awaiting command byte from client...")
+			cmd := c.readByte("6.4:client-server-packet-type")
+			log.Printf("got command type %d from client", int(cmd))
+			switch cmd {
+			case cmdSetPixelFormat:
+				c.handleSetPixelFormat()
+			case cmdSetEncodings:
+				c.handleSetEncodings()
+			case cmdFramebufferUpdateRequest:
+				c.handleUpdateRequest()
+			case cmdPointerEvent:
+				c.handlePointerEvent()
+			case cmdKeyEvent:
+				c.handleKeyEvent()
+			default:
+				c.failf("unsupported command type %d from client", int(cmd))
+			}
 
-	// 6.3.2. ServerInit
-	width, height := c.dimensions()
-	c.w(uint16(width))
-	c.w(uint16(height))
-	c.w(c.format.BPP)
-	c.w(c.format.Depth)
-	c.w(c.format.BigEndian)
-	c.w(c.format.TrueColour)
-	c.w(c.format.RedMax)
-	c.w(c.format.GreenMax)
-	c.w(c.format.BlueMax)
-	c.w(c.format.RedShift)
-	c.w(c.format.GreenShift)
-	c.w(c.format.BlueShift)
-	c.w(uint8(0)) // pad1
-	c.w(uint8(0)) // pad2
-	c.w(uint8(0)) // pad3
-	serverName := "rfb-go"
-	c.w(int32(len(serverName)))
-	c.bw.WriteString(serverName)
-	c.flush()
-
-	for {
-		//log.Printf("awaiting command byte from client...")
-		cmd := c.readByte("6.4:client-server-packet-type")
-		//log.Printf("got command type %d from client", int(cmd))
-		switch cmd {
-		case cmdSetPixelFormat:
-			c.handleSetPixelFormat()
-		case cmdSetEncodings:
-			c.handleSetEncodings()
-		case cmdFramebufferUpdateRequest:
-			c.handleUpdateRequest()
-		case cmdPointerEvent:
-			c.handlePointerEvent()
-		case cmdKeyEvent:
-			c.handleKeyEvent()
-		default:
-			c.failf("unsupported command type %d from client", int(cmd))
 		}
-	}
+	*/
+}
+
+type ClientAuthVNC byte
+
+func (*ClientAuthVNC) SecurityType() uint8 {
+	return 2
+}
+
+func (*ClientAuthVNC) Handshake(net.Conn) error {
+	return nil
 }
 
 func (c *Conn) pushFramesLoop() {
@@ -410,7 +476,7 @@ func (c *Conn) pushImage(li *LockableImage) {
 
 	//log.Printf("sending %d x %d pixels", width, height)
 
-	if c.format.TrueColour == 0 {
+	if c.format.TrueColor == 0 {
 		c.failf("only true-colour supported")
 	}
 
@@ -500,7 +566,7 @@ func (c *Conn) pushGenericLocked(im image.Image) {
 
 type PixelFormat struct {
 	BPP, Depth                      uint8
-	BigEndian, TrueColour           uint8 // flags; 0 or non-zero
+	BigEndian, TrueColor            uint8 // flags; 0 or non-zero
 	RedMax, GreenMax, BlueMax       uint16
 	RedShift, GreenShift, BlueShift uint8
 }
@@ -509,7 +575,7 @@ type PixelFormat struct {
 func (f *PixelFormat) isScreensThousands() bool {
 	// Note: Screens asks for Depth 16; RealVNC asks for Depth 15 (which is more accurate)
 	// Accept either. Same format.
-	return f.BPP == 16 && (f.Depth == 16 || f.Depth == 15) && f.TrueColour != 0 &&
+	return f.BPP == 16 && (f.Depth == 16 || f.Depth == 15) && f.TrueColor != 0 &&
 		f.RedMax == 0x1f && f.GreenMax == 0x1f && f.BlueMax == 0x1f &&
 		f.RedShift == 10 && f.GreenShift == 5 && f.BlueShift == 0
 }
@@ -522,7 +588,7 @@ func (c *Conn) handleSetPixelFormat() {
 	c.read("pixelformat.bpp", &pf.BPP)
 	c.read("pixelformat.depth", &pf.Depth)
 	c.read("pixelformat.beflag", &pf.BigEndian)
-	c.read("pixelformat.truecolour", &pf.TrueColour)
+	c.read("pixelformat.truecolor", &pf.TrueColor)
 	c.read("pixelformat.redmax", &pf.RedMax)
 	c.read("pixelformat.greenmax", &pf.GreenMax)
 	c.read("pixelformat.bluemax", &pf.BlueMax)
