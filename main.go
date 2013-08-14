@@ -1,62 +1,121 @@
-/*
-Copyright 2011 Google Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-     http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
-// Example of using the rfb package.
-//
-// Author: Brad Fitzpatrick <brad@danga.com>
-
 package main
 
 import (
-	"./rfb/"
-	"flag"
+	"./vnc"
+	"crypto/des"
+	"crypto/rand"
+	"encoding/binary"
 	"log"
 	"net"
+	"reflect"
 )
 
-var (
-	listen = flag.String("listen", ":6900", "listen on [ip]:port")
-)
+type ClientAuthVNC byte
 
-const (
-	width  = 640
-	height = 480
-)
+func (*ClientAuthVNC) SecurityType() uint8 {
+	return 2
+}
+
+func (*ClientAuthVNC) Handshake(c net.Conn) error {
+	challenge := make([]uint8, 16)
+
+	if err := binary.Read(c, binary.BigEndian, &challenge); err != nil {
+		return err
+	}
+
+	_, err := rand.Read(challenge)
+	if err != nil {
+		return err
+	}
+
+	pwd := []byte("njkcnjd")
+	if len(pwd) > 8 {
+		pwd = pwd[:8]
+	}
+	if x := len(pwd); x < 8 {
+		for i := 8 - x; i > 0; i-- {
+			pwd = append(pwd, byte(0))
+		}
+
+	}
+
+	enc, err := des.NewCipher(pwd)
+	if err != nil {
+		return err
+	}
+	response := make([]byte, 16)
+	enc.Encrypt(response, challenge)
+	if err = binary.Write(c, binary.BigEndian, response); err != nil {
+		return err
+	}
+	return nil
+}
 
 func main() {
-	flag.Parse()
 
-	ln, err := net.Listen("tcp", *listen)
+	l, err := net.Listen("tcp", "127.0.0.1:6900")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	s := rfb.NewServer(width, height)
-	go func() {
-		err = s.Serve(ln)
-		log.Fatalf("rfb server ended with: %v", err)
-	}()
-	for c := range s.Conns {
-		handleConn(c)
-	}
-}
-
-func handleConn(c *rfb.Conn) {
-	err := c.Proxy("127.0.0.1:5900")
+	r, err := net.Dial("tcp", "127.0.0.1:5900")
 	if err != nil {
-		log.Fatalf("rfb server error: %v", err)
+		log.Fatal(err)
 	}
+
+	msgR := make(chan vnc.ServerMessage, 1)
+	c, err := vnc.Client(r, &vnc.ClientConfig{ServerMessageCh: msgR})
+	if err != nil {
+		log.Fatal(err)
+	}
+	//	log.Printf("%+v\n", c)
+	_ = c
+	msgL := make(chan vnc.ClientMessage, 1)
+	format := vnc.PixelFormat{BPP: 32, Depth: 24, BigEndian: false, TrueColor: true, RedMax: 255, GreenMax: 255, BlueMax: 255, RedShift: 16, GreenShift: 8, BlueShift: 0}
+
+	go func() {
+		err = vnc.NewServer(l, &vnc.ServerConfig{PixelFormat: format, FrameBufferWidth: uint16(640), FrameBufferHeight: uint16(480), DesktopName: "QEMU (devstack)", ClientMessageCh: msgL})
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
+	//	defer s.Close()
+	for {
+		select {
+		case msg := <-msgL:
+			switch reflect.TypeOf(msg).String() {
+			case "*vnc.SetPixelFormatMessage":
+				format := msg.(*vnc.SetPixelFormatMessage)
+				err := c.SetPixelFormat(&format.PixelFormat)
+				if err != nil {
+					log.Printf(err.Error())
+				}
+			case "*vnc.SetEncodingsMessage":
+				encs := msg.(*vnc.SetEncodingsMessage)
+				err := c.SetEncodings(encs.Encs)
+				if err != nil {
+					log.Printf(err.Error())
+				}
+			case "*vnc.FramebufferUpdateRequestMessage":
+				request := msg.(*vnc.FramebufferUpdateRequestMessage)
+				incremental := false
+				if request.Incremental == 1 {
+					incremental = true
+				}
+				err := c.FramebufferUpdateRequest(incremental, request.X, request.Y, request.Width, request.Height)
+				if err != nil {
+					log.Printf(err.Error())
+				}
+			case "*vnc.PointerEventMessage":
+			}
+		case msg := <-msgR:
+			switch reflect.TypeOf(msg).String() {
+			case "*vnc.FramebufferUpdateMessage":
+
+			default:
+				log.Printf("%s\n", reflect.TypeOf(msg).String())
+			}
+		}
+	}
+
 }
