@@ -14,7 +14,7 @@ type ClientMessage interface {
 	// Read reads the contents of the message from the reader. At the point
 	// this is called, the message type has already been read from the reader.
 	// This should return a new ClientMessage that is the appropriate type.
-	Read(*ServerConn, io.Reader) (ClientMessage, error)
+	Read(*ServerConn) (ClientMessage, error)
 }
 
 // SetPixelFormat sets the format in which pixel values should be sent
@@ -29,12 +29,12 @@ func (*SetPixelFormatMessage) Type() uint8 {
 	return 0
 }
 
-func (*SetPixelFormatMessage) Read(c *ServerConn, r io.Reader) (ClientMessage, error) {
+func (*SetPixelFormatMessage) Read(c *ServerConn) (ClientMessage, error) {
 	var result SetPixelFormatMessage
 
 	// Read off the padding
 	var padding [3]byte
-	if _, err := io.ReadFull(r, padding[:]); err != nil {
+	if _, err := io.ReadFull(c.c, padding[:]); err != nil {
 		return nil, err
 	}
 
@@ -44,7 +44,7 @@ func (*SetPixelFormatMessage) Read(c *ServerConn, r io.Reader) (ClientMessage, e
 	}
 
 	c.PixelFormat = result.PixelFormat
-	c.config.PixelFormat = result.PixelFormat
+	//	c.config.PixelFormat = result.PixelFormat
 	return &result, nil
 }
 
@@ -61,17 +61,17 @@ func (*SetEncodingsMessage) Type() uint8 {
 	return 2
 }
 
-func (*SetEncodingsMessage) Read(c *ServerConn, r io.Reader) (ClientMessage, error) {
+func (*SetEncodingsMessage) Read(c *ServerConn) (ClientMessage, error) {
 	var result SetEncodingsMessage
 
 	// Read off the padding
 	var padding [1]byte
-	if _, err := io.ReadFull(r, padding[:]); err != nil {
+	if _, err := io.ReadFull(c.c, padding[:]); err != nil {
 		return nil, err
 	}
 
 	var encNumber uint16
-	if err := binary.Read(r, binary.BigEndian, &encNumber); err != nil {
+	if err := binary.Read(c.c, binary.BigEndian, &encNumber); err != nil {
 		return nil, err
 	}
 	// Build the map of encodings supported
@@ -82,7 +82,7 @@ func (*SetEncodingsMessage) Read(c *ServerConn, r io.Reader) (ClientMessage, err
 
 	var encType int32
 	for i := uint16(0); i < encNumber; i++ {
-		if err := binary.Read(r, binary.BigEndian, &encType); err != nil {
+		if err := binary.Read(c.c, binary.BigEndian, &encType); err != nil {
 			return nil, err
 		}
 	}
@@ -115,7 +115,7 @@ func (*FramebufferUpdateRequestMessage) Type() uint8 {
 	return 3
 }
 
-func (*FramebufferUpdateRequestMessage) Read(c *ServerConn, r io.Reader) (ClientMessage, error) {
+func (*FramebufferUpdateRequestMessage) Read(c *ServerConn) (ClientMessage, error) {
 	var result FramebufferUpdateRequestMessage
 
 	data := []interface{}{
@@ -127,7 +127,7 @@ func (*FramebufferUpdateRequestMessage) Read(c *ServerConn, r io.Reader) (Client
 	}
 
 	for _, val := range data {
-		if err := binary.Read(r, binary.BigEndian, val); err != nil {
+		if err := binary.Read(c.c, binary.BigEndian, val); err != nil {
 			return nil, err
 		}
 	}
@@ -151,20 +151,20 @@ func (*KeyEventMessage) Type() uint8 {
 	return 4
 }
 
-func (*KeyEventMessage) Read(c *ServerConn, r io.Reader) (ClientMessage, error) {
+func (*KeyEventMessage) Read(c *ServerConn) (ClientMessage, error) {
 	var result KeyEventMessage
 
-	if err := binary.Read(r, binary.BigEndian, &result.Down); err != nil {
+	if err := binary.Read(c.c, binary.BigEndian, &result.Down); err != nil {
 		return nil, err
 	}
 
 	// Read off the padding
 	var padding [2]byte
-	if _, err := io.ReadFull(r, padding[:]); err != nil {
+	if _, err := io.ReadFull(c.c, padding[:]); err != nil {
 		return nil, err
 	}
 
-	if err := binary.Read(r, binary.BigEndian, &result.Keysym); err != nil {
+	if err := binary.Read(c.c, binary.BigEndian, &result.Keysym); err != nil {
 		return nil, err
 	}
 
@@ -185,7 +185,7 @@ func (*PointerEventMessage) Type() uint8 {
 	return 5
 }
 
-func (*PointerEventMessage) Read(c *ServerConn, r io.Reader) (ClientMessage, error) {
+func (*PointerEventMessage) Read(c *ServerConn) (ClientMessage, error) {
 	var result PointerEventMessage
 
 	data := []interface{}{
@@ -195,7 +195,7 @@ func (*PointerEventMessage) Read(c *ServerConn, r io.Reader) (ClientMessage, err
 	}
 
 	for _, val := range data {
-		if err := binary.Read(r, binary.BigEndian, val); err != nil {
+		if err := binary.Read(c.c, binary.BigEndian, val); err != nil {
 			return nil, err
 		}
 	}
@@ -214,20 +214,20 @@ func (*ClientCutTextMessage) Type() uint8 {
 	return 6
 }
 
-func (*ClientCutTextMessage) Read(c *ServerConn, r io.Reader) (ClientMessage, error) {
+func (*ClientCutTextMessage) Read(c *ServerConn) (ClientMessage, error) {
 	// Read off the padding
 	var padding [1]byte
-	if _, err := io.ReadFull(r, padding[:]); err != nil {
+	if _, err := io.ReadFull(c.c, padding[:]); err != nil {
 		return nil, err
 	}
 
 	var textLength uint32
-	if err := binary.Read(r, binary.BigEndian, &textLength); err != nil {
+	if err := binary.Read(c.c, binary.BigEndian, &textLength); err != nil {
 		return nil, err
 	}
 
 	textBytes := make([]uint8, textLength)
-	if err := binary.Read(r, binary.BigEndian, &textBytes); err != nil {
+	if err := binary.Read(c.c, binary.BigEndian, &textBytes); err != nil {
 		return nil, err
 	}
 

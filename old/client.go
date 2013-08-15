@@ -46,7 +46,7 @@ type ClientConn struct {
 type ClientConfig struct {
 	// A slice of ClientAuth methods. Only the first instance that is
 	// suitable by the server will be used to authenticate.
-	Auth []Auth
+	Auth []AuthType
 
 	// Exclusive determines whether the connection is shared with other
 	// clients. If true, then all other clients connected will be
@@ -323,10 +323,10 @@ func (c *ClientConn) handshake() error {
 
 	clientSecurityTypes := c.config.Auth
 	if clientSecurityTypes == nil {
-		clientSecurityTypes = []Auth{new(AuthNone)}
+		clientSecurityTypes = []AuthType{new(AuthTypeNone)}
 	}
 
-	var auth Auth
+	var auth AuthType
 FindAuth:
 	for _, curAuth := range clientSecurityTypes {
 		for _, securityType := range securityTypes {

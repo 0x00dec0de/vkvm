@@ -10,16 +10,18 @@ import (
 	"reflect"
 )
 
+//type Proxy map[*vnc.ServerConn]*vnc.ClientConn
+
 type ClientAuthVNC byte
 
-func (*ClientAuthVNC) SecurityType() uint8 {
+func (*ClientAuthVNC) Type() uint8 {
 	return 2
 }
 
-func (*ClientAuthVNC) Handshake(c net.Conn) error {
+func (*ClientAuthVNC) Handler(c *vnc.ServerConn) (err error) {
 	challenge := make([]uint8, 16)
 
-	if err := binary.Read(c, binary.BigEndian, &challenge); err != nil {
+	if err := binary.Read(c.c, binary.BigEndian, &challenge); err != nil {
 		return err
 	}
 
@@ -45,7 +47,7 @@ func (*ClientAuthVNC) Handshake(c net.Conn) error {
 	}
 	response := make([]byte, 16)
 	enc.Encrypt(response, challenge)
-	if err = binary.Write(c, binary.BigEndian, response); err != nil {
+	if err = binary.Write(c.c, binary.BigEndian, response); err != nil {
 		return err
 	}
 	return nil
@@ -58,32 +60,88 @@ func main() {
 		log.Fatal(err)
 	}
 
-	r, err := net.Dial("tcp", "127.0.0.1:5900")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	msgR := make(chan vnc.ServerMessage, 1)
-	c, err := vnc.Client(r, &vnc.ClientConfig{ServerMessageCh: msgR})
-	if err != nil {
-		log.Fatal(err)
-	}
-	//	log.Printf("%+v\n", c)
-	_ = c
-	msgL := make(chan vnc.ClientMessage, 1)
-	format := vnc.PixelFormat{BPP: 32, Depth: 24, BigEndian: false, TrueColor: true, RedMax: 255, GreenMax: 255, BlueMax: 255, RedShift: 16, GreenShift: 8, BlueShift: 0}
+	s := vnc.NewServer(&vnc.ServerConfig{Width: 640, Height: 480, DesktopName: "vkvm"})
+	s.Serve(l)
 
 	go func() {
-		err = vnc.NewServer(l, &vnc.ServerConfig{PixelFormat: format, FrameBufferWidth: uint16(640), FrameBufferHeight: uint16(480), DesktopName: "QEMU (devstack)", ClientMessageCh: msgL})
-		if err != nil {
-			log.Fatal(err)
-		}
+		err = s.Serve(l)
+		log.Fatalf("vnc server ended with: %v", err)
 	}()
-	//	defer s.Close()
+	for c := range s.Conns {
+		handleConn(c)
+	}
+
+}
+
+func handleConn(c *vnc.ServerConn) {
+	var err error
 	for {
 		select {
-		case msg := <-msgL:
+		case msg := <-c.MessageCh:
 			switch reflect.TypeOf(msg).String() {
+			case "*vnc.CloseMessage":
+				return
+			case "*vnc.AuthMessage":
+				auth := msg.(*vnc.AuthMessage)
+				if err = auth.Handshake(c.c); err != nil {
+					if err = binary.Write(c.c, binary.BigEndian, uint32(1)); err != nil {
+						return err
+					}
+					c.writeErrorReason(err)
+					return
+				}
+				// 7.1.3 SecurityResult Handshake
+				if err = binary.Write(c.c, binary.BigEndian, uint32(0)); err != nil {
+					return
+				}
+			case "*vnc.InitMessage":
+				var sharedFlag uint8
+				if c.config.Exclusive {
+					sharedFlag = 0
+				}
+
+				if err = binary.Read(c.c, binary.BigEndian, &sharedFlag); err != nil {
+					return err
+				}
+
+				buffer := new(bytes.Buffer)
+				// 7.3.2 ServerInit
+				if err = binary.Write(buffer, binary.BigEndian, c.config.Width); err != nil {
+					return err
+				}
+
+				if err = binary.Write(buffer, binary.BigEndian, c.config.Height); err != nil {
+					return err
+				}
+
+				// Write the pixel format
+				var format []byte
+				if format, err = writePixelFormat(&c.PixelFormat); err != nil {
+					return err
+				}
+				if err = binary.Write(buffer, binary.BigEndian, format); err != nil {
+					return err
+				}
+
+				padding := []uint8{0, 0, 0}
+				if err = binary.Write(buffer, binary.BigEndian, padding); err != nil {
+					return err
+				}
+
+				nameBytes := []uint8(c.DesktopName)
+				nameLen := uint8(cap(nameBytes))
+				if err = binary.Write(buffer, binary.BigEndian, nameLen); err != nil {
+					return err
+				}
+
+				if err = binary.Write(buffer, binary.BigEndian, nameBytes); err != nil {
+					return err
+				}
+
+				if err = binary.Write(c.c, binary.BigEndian, buffer.Bytes()); err != nil {
+					return err
+				}
+
 			case "*vnc.SetPixelFormatMessage":
 				format := msg.(*vnc.SetPixelFormatMessage)
 				err := c.SetPixelFormat(&format.PixelFormat)
@@ -111,7 +169,7 @@ func main() {
 		case msg := <-msgR:
 			switch reflect.TypeOf(msg).String() {
 			case "*vnc.FramebufferUpdateMessage":
-
+				s.FramebufferUpdate(msg)
 			default:
 				log.Printf("%s\n", reflect.TypeOf(msg).String())
 			}

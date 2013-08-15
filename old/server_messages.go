@@ -23,15 +23,6 @@ type FramebufferUpdateMessage struct {
 	Rectangles []Rectangle
 }
 
-// Rectangle represents a rectangle of pixel data.
-type Rectangle struct {
-	X      uint16
-	Y      uint16
-	Width  uint16
-	Height uint16
-	Enc    Encoding
-}
-
 func (*FramebufferUpdateMessage) Type() uint8 {
 	return 0
 }

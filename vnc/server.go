@@ -10,13 +10,20 @@ import (
 	"fmt"
 	"io"
 	"net"
-
-//	"unicode"
+	"unicode"
 )
 
-type ServerConn struct {
-	c      net.Conn
+type Server struct {
+	conns  chan *ServerConn
+	Conns  <-chan *ServerConn
 	config *ServerConfig
+}
+
+type ServerConn struct {
+	// Server config
+	s *Server
+
+	c net.Conn
 
 	// If the pixel format uses a color map, then this is the color
 	// map that is used. This should not be modified directly, since
@@ -27,12 +34,6 @@ type ServerConn struct {
 	// directly. Instead, SetEncodings should be used.
 	Encs []Encoding
 
-	// Width of the frame buffer in pixels, sent from the server.
-	FrameBufferWidth uint16
-
-	// Height of the frame buffer in pixels, sent from the server.
-	FrameBufferHeight uint16
-
 	// Name associated with the desktop, sent from the server.
 	DesktopName string
 
@@ -40,75 +41,101 @@ type ServerConn struct {
 	// be modified. If you wish to set a new pixel format, use the
 	// SetPixelFormat method.
 	PixelFormat PixelFormat
-}
-
-// A ServerConfig structure is used to configure a ClientConn. After
-// one has been passed to initialize a connection, it must not be modified.
-type ServerConfig struct {
-	// A slice of ClientAuth methods. Only the first instance that is
-	// suitable by the server will be used to authenticate.
-	Auth []Auth
-
-	// Exclusive determines whether the connection is shared with other
-	// clients. If true, then all other clients connected will be
-	// disconnected when a connection is established to the VNC server.
-	Exclusive bool
 
 	// The channel that all messages received from the server will be
 	// sent on. If the channel blocks, then the goroutine reading data
 	// from the VNC server may block indefinitely. It is up to the user
 	// of the library to ensure that this channel is properly read.
 	// If this is not set, then all messages will be discarded.
-	ClientMessageCh chan<- ClientMessage
+	MessageCh chan<- ClientMessage
+
+	// Exclusive determines whether the connection is shared with other
+	// clients. If true, then all other clients connected will be
+	// disconnected when a connection is established to the VNC server.
+	Exclusive bool
+}
+
+// A ServerConfig structure is used to configure a ServerConn. After
+// one has been passed to initialize a connection, it must not be modified.
+type ServerConfig struct {
+	// A slice of AuthType methods. Only the first instance that is
+	// suitable by the server and client will be used to authenticate.
+	AuthTypes []AuthType
 
 	// A slice of supported messages that can be read from the server.
 	// This only needs to contain NEW server messages, and doesn't
 	// need to explicitly contain the RFC-required messages.
 	ClientMessages []ClientMessage
 
-	PixelFormat PixelFormat
+	ServerInit  func(*ServerConn) error
+	DesktopName string
 
-	FrameBufferHeight uint16
-	FrameBufferWidth  uint16
-	DesktopName       string
+	Width  int32
+	Height int32
+
+	MaxConn    int32
+	MaxConnMsg int32
 }
 
-func NewServer(ln net.Listener, cfg *ServerConfig) error {
+func NewServer(cfg *ServerConfig) *Server {
+	conns := make(chan *ServerConn, cfg.MaxConn)
+	return &Server{config: cfg, Conns: conns, conns: conns}
+}
+
+func (s *Server) Serve(ln net.Listener) error {
 	for {
 		c, err := ln.Accept()
 		if err != nil {
 			return err
 		}
-		conn := &ServerConn{
-			c:      c,
-			config: cfg,
-		}
-		if err := conn.handshake(); err != nil {
-			conn.c.Close()
+		conn := s.newConn(c)
+		if err := conn.versionHandshake(); err != nil {
+			conn.Close()
 			return err
+		}
+		if err := conn.securityHandshake(); err != nil {
+			conn.Close()
+			return err
+		}
+		if err := conn.serverInit(); err != nil {
+			conn.Close()
+			return err
+		}
+		select {
+		case s.conns <- conn:
+		default:
+			// client is behind; doesn't get this updated.
 		}
 		go conn.mainLoop()
 	}
 	panic("unreachable")
 }
 
+func (s *Server) newConn(c net.Conn) *ServerConn {
+	conn := &ServerConn{
+		s:         s,
+		c:         c,
+		MessageCh: make(chan ClientMessage, s.config.MaxConnMsg),
+	}
+	return conn
+}
+
 func (c *ServerConn) Close() error {
 	return c.c.Close()
 }
 
-/*
-// CutText tells the server that the client has new text in its cut buffer.
+// CutText tells the client that the server has new text in its cut buffer.
 // The text string MUST only contain Latin-1 characters. This encoding
 // is compatible with Go's native string format, but can only use up to
 // unicode.MaxLatin values.
 //
 // See RFC 6143 Section 7.5.6
-func (c *ClientConn) CutText(text string) error {
+func (c *ServerConn) CutText(text string) error {
 	var buf bytes.Buffer
 
 	// This is the fixed size data we'll send
 	fixedData := []interface{}{
-		uint8(6),
+		uint8(3),
 		uint8(0),
 		uint8(0),
 		uint8(0),
@@ -139,158 +166,85 @@ func (c *ClientConn) CutText(text string) error {
 	return nil
 }
 
-// Requests a framebuffer update from the server. There may be an indefinite
-// time between the request and the actual framebuffer update being
-// received.
-//
-// See RFC 6143 Section 7.5.3
-func (c *ClientConn) FramebufferUpdateRequest(incremental bool, x, y, width, height uint16) error {
-	var buf bytes.Buffer
-	var incrementalByte uint8 = 0
-
-	if incremental {
-		incrementalByte = 1
-	}
-
-	data := []interface{}{
-		uint8(3),
-		incrementalByte,
-		x, y, width, height,
-	}
-
-	for _, val := range data {
-		if err := binary.Write(&buf, binary.BigEndian, val); err != nil {
-			return err
-		}
-	}
-
-	if _, err := c.c.Write(buf.Bytes()[0:10]); err != nil {
+func (c *ServerConn) Bell() error {
+	if err := binary.Write(c.c, binary.BigEndian, uint8(2)); err != nil {
 		return err
 	}
-
 	return nil
 }
 
-// KeyEvent indiciates a key press or release and sends it to the server.
-// The key is indicated using the X Window System "keysym" value. Use
-// Google to find a reference of these values. To simulate a key press,
-// you must send a key with both a down event, and a non-down event.
-//
-// See 7.5.4.
-func (c *ClientConn) KeyEvent(keysym uint32, down bool) error {
-	var downFlag uint8 = 0
-	if down {
-		downFlag = 1
-	}
+func (c *ServerConn) FramebufferUpdate(rectangles []Rectangle) error {
+	var buf bytes.Buffer
 
-	data := []interface{}{
-		uint8(4),
-		downFlag,
+	// This is the fixed size data we'll send
+	fixedData := []interface{}{
 		uint8(0),
 		uint8(0),
-		keysym,
+		uint16(cap(rectangles)),
 	}
 
-	for _, val := range data {
-		if err := binary.Write(c.c, binary.BigEndian, val); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// PointerEvent indicates that pointer movement or a pointer button
-// press or release.
-//
-// The mask is a bitwise mask of various ButtonMask values. When a button
-// is set, it is pressed, when it is unset, it is released.
-//
-// See RFC 6143 Section 7.5.5
-func (c *ClientConn) PointerEvent(mask ButtonMask, x, y uint16) error {
-	var buf bytes.Buffer
-
-	data := []interface{}{
-		uint8(5),
-		uint8(mask),
-		x,
-		y,
-	}
-
-	for _, val := range data {
+	for _, val := range fixedData {
 		if err := binary.Write(&buf, binary.BigEndian, val); err != nil {
 			return err
 		}
 	}
 
-	if _, err := c.c.Write(buf.Bytes()[0:6]); err != nil {
+	for _, rectangle := range rectangles {
+		if err := binary.Write(&buf, binary.BigEndian, rectangle); err != nil {
+			return err
+		}
+	}
+
+	if _, err := c.c.Write(buf.Bytes()); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// SetEncodings sets the encoding types in which the pixel data can
-// be sent from the server. After calling this method, the encs slice
-// given should not be modified.
-//
-// See RFC 6143 Section 7.5.2
-func (c *ClientConn) SetEncodings(encs []Encoding) error {
-	data := make([]interface{}, 3+len(encs))
-	data[0] = uint8(2)
-	data[1] = uint8(0)
-	data[2] = uint16(len(encs))
+func (c *ServerConn) SetColorMapEntries(firstColor uint16, colors []Color) error {
+	var buf bytes.Buffer
 
-	for i, enc := range encs {
-		data[3+i] = int32(enc.Type())
+	// This is the fixed size data we'll send
+	fixedData := []interface{}{
+		uint8(1),
+		uint8(0),
+		firstColor,
+		uint16(cap(colors)),
 	}
 
-	var buf bytes.Buffer
-	for _, val := range data {
+	for _, val := range fixedData {
 		if err := binary.Write(&buf, binary.BigEndian, val); err != nil {
 			return err
 		}
 	}
 
-	dataLength := 4 + (4 * len(encs))
-	if _, err := c.c.Write(buf.Bytes()[0:dataLength]); err != nil {
-		return err
+	for _, color := range colors {
+		if err := binary.Write(&buf, binary.BigEndian, color); err != nil {
+			return err
+		}
+
+		/*
+			if err := binary.Write(&buf, binary.BigEndian, color.R); err != nil {
+				return err
+			}
+			if err := binary.Write(&buf, binary.BigEndian, color.G); err != nil {
+				return err
+			}
+			if err := binary.Write(&buf, binary.BigEndian, color.B); err != nil {
+				return err
+			}
+		*/
 	}
 
-	c.Encs = encs
+	if _, err := c.c.Write(buf.Bytes()); err != nil {
+		return err
+	}
 
 	return nil
 }
 
-// SetPixelFormat sets the format in which pixel values should be sent
-// in FramebufferUpdate messages from the server.
-//
-// See RFC 6143 Section 7.5.1
-func (c *ClientConn) SetPixelFormat(format *PixelFormat) error {
-	var keyEvent [20]byte
-	keyEvent[0] = 0
-
-	pfBytes, err := writePixelFormat(format)
-	if err != nil {
-		return err
-	}
-
-	// Copy the pixel format bytes into the proper slice location
-	copy(keyEvent[4:], pfBytes)
-
-	// Send the data down the connection
-	if _, err := c.c.Write(keyEvent[:]); err != nil {
-		return err
-	}
-
-	// Reset the color map as according to RFC.
-	var newColorMap [256]Color
-	c.ColorMap = newColorMap
-
-	return nil
-}
-*/
-func (c *ServerConn) handshake() error {
+func (c *ServerConn) versionHandshake() error {
 	var protocolVersion [12]byte
 
 	// Respond with the version we will support
@@ -316,41 +270,44 @@ func (c *ServerConn) handshake() error {
 	if maxMinor < 8 {
 		return fmt.Errorf("unsupported minor version, less than 8: %d", maxMinor)
 	}
+	return nil
+}
 
-	serverSecurityTypes := c.config.Auth
+func (c *ServerConn) securityHandshake() error {
+	serverSecurityTypes := c.s.config.AuthTypes
 	if serverSecurityTypes == nil {
-		serverSecurityTypes = []Auth{new(AuthNone)}
+		serverSecurityTypes = []AuthType{new(AuthTypeNone)}
 	}
 
 	var sectypes []uint8
 	sectypes = []uint8{uint8(len(serverSecurityTypes))}
 	for _, curAuth := range serverSecurityTypes {
-		sectypes = append(sectypes, curAuth.SecurityType())
+		sectypes = append(sectypes, curAuth.Type())
 	}
-	if err = binary.Write(c.c, binary.BigEndian, sectypes); err != nil {
+	if err := binary.Write(c.c, binary.BigEndian, sectypes); err != nil {
 		return err
 	}
 
 	var securityType uint8
-	if err = binary.Read(c.c, binary.BigEndian, &securityType); err != nil {
+	if err := binary.Read(c.c, binary.BigEndian, &securityType); err != nil {
 		return err
 	}
 
-	var auth Auth
+	var authType AuthType
 FindAuth:
 	for _, curAuth := range serverSecurityTypes {
-		if curAuth.SecurityType() == securityType {
+		if curAuth.Type() == securityType {
 			// We use the first matching supported authentication
-			auth = curAuth
+			authType = curAuth
 			break FindAuth
 		}
 	}
 
-	if auth == nil {
+	if authType == nil {
 		return fmt.Errorf("no suitable auth schemes found. server supported: %#v", serverSecurityTypes)
 	}
 
-	if err = auth.Handshake(c.c); err != nil {
+	if err := authType.Handler(c); err != nil {
 		if err = binary.Write(c.c, binary.BigEndian, uint32(1)); err != nil {
 			return err
 		}
@@ -358,59 +315,19 @@ FindAuth:
 		return err
 	}
 
-	// 7.1.3 SecurityResult Handshake
-	if err = binary.Write(c.c, binary.BigEndian, uint32(0)); err != nil {
+	if err := binary.Write(c.c, binary.BigEndian, uint32(0)); err != nil {
 		return err
 	}
 
-	// 7.3.1 ClientInit
-	var sharedFlag uint8
-	if c.config.Exclusive {
-		sharedFlag = 0
-	}
-
-	if err = binary.Read(c.c, binary.BigEndian, &sharedFlag); err != nil {
-		return err
-	}
-
-	buffer := new(bytes.Buffer)
-	// 7.3.2 ServerInit
-	if err = binary.Write(buffer, binary.BigEndian, c.config.FrameBufferWidth); err != nil {
-		return err
-	}
-
-	if err = binary.Write(buffer, binary.BigEndian, c.config.FrameBufferHeight); err != nil {
-		return err
-	}
-
-	// Write the pixel format
-	var format []byte
-	if format, err = writePixelFormat(&c.config.PixelFormat); err != nil {
-		return err
-	}
-	if err = binary.Write(buffer, binary.BigEndian, format); err != nil {
-		return err
-	}
-
-	padding := []uint8{0, 0, 0}
-	if err = binary.Write(buffer, binary.BigEndian, padding); err != nil {
-		return err
-	}
-
-	nameBytes := []uint8(c.config.DesktopName)
-	nameLen := uint8(cap(nameBytes))
-	if err = binary.Write(buffer, binary.BigEndian, nameLen); err != nil {
-		return err
-	}
-
-	if err = binary.Write(buffer, binary.BigEndian, nameBytes); err != nil {
-		return err
-	}
-
-	if err = binary.Write(c.c, binary.BigEndian, buffer.Bytes()); err != nil {
-		return err
-	}
 	return nil
+}
+
+func (c *ServerConn) serverInit() error {
+	if c.s.config.ServerInit == nil {
+		return serverInitDefault(c)
+	}
+
+	return c.s.config.ServerInit(c)
 }
 
 // mainLoop reads messages sent from the server and routes them to the
@@ -433,8 +350,8 @@ func (c *ServerConn) mainLoop() {
 		typeMap[msg.Type()] = msg
 	}
 
-	if c.config.ClientMessages != nil {
-		for _, msg := range c.config.ClientMessages {
+	if c.s.config.ClientMessages != nil {
+		for _, msg := range c.s.config.ClientMessages {
 			typeMap[msg.Type()] = msg
 		}
 	}
@@ -449,16 +366,16 @@ func (c *ServerConn) mainLoop() {
 			// Unsupported message type! Bad!
 			break
 		}
-		parsedMsg, err := msg.Read(c, c.c)
+		parsedMsg, err := msg.Read(c)
 		if err != nil {
 			break
 		}
 
-		if c.config.ClientMessageCh == nil {
+		if c.MessageCh == nil {
 			continue
 		}
 
-		c.config.ClientMessageCh <- parsedMsg
+		c.MessageCh <- parsedMsg
 	}
 }
 
