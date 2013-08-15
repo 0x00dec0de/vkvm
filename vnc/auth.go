@@ -1,5 +1,9 @@
 package vnc
 
+import (
+	"io"
+)
+
 // A Auth implements a method of authenticating with a remote server or client.
 type AuthType interface {
 	// Type returns the byte identifier sent by the server or client to
@@ -8,7 +12,7 @@ type AuthType interface {
 
 	// Handshake is called when the authentication handshake should be
 	// performed, as part of the general RFB handshake. (see 7.1.2)
-	Handler(*ServerConn) error
+	Handler(*ServerConn, io.ReadWriter) error
 }
 
 // AuthNone is the "none" authentication. See 7.1.2
@@ -18,6 +22,6 @@ func (*AuthTypeNone) Type() uint8 {
 	return 1
 }
 
-func (*AuthTypeNone) Handler(*ServerConn) error {
+func (*AuthTypeNone) Handler(*ServerConn, io.ReadWriter) error {
 	return nil
 }

@@ -6,7 +6,6 @@ import (
 )
 
 func serverInitDefault(c *ServerConn) (err error) {
-
 	var sharedFlag uint8
 	if err = binary.Read(c.c, binary.BigEndian, &sharedFlag); err != nil {
 		return err

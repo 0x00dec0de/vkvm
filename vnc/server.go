@@ -23,6 +23,7 @@ type ServerConn struct {
 	// Server config
 	s *Server
 
+	// net.Conn
 	c net.Conn
 
 	// If the pixel format uses a color map, then this is the color
@@ -42,12 +43,13 @@ type ServerConn struct {
 	// SetPixelFormat method.
 	PixelFormat PixelFormat
 
-	// The channel that all messages received from the server will be
-	// sent on. If the channel blocks, then the goroutine reading data
+	// The channels that all messages received from the client and sended
+	// to server. If the channel blocks, then the goroutine reading data
 	// from the VNC server may block indefinitely. It is up to the user
 	// of the library to ensure that this channel is properly read.
 	// If this is not set, then all messages will be discarded.
-	MessageCh chan<- ClientMessage
+	MessageInp chan ClientMessage
+	MessageOut chan ServerMessage
 
 	// Exclusive determines whether the connection is shared with other
 	// clients. If true, then all other clients connected will be
@@ -66,9 +68,11 @@ type ServerConfig struct {
 	// This only needs to contain NEW server messages, and doesn't
 	// need to explicitly contain the RFC-required messages.
 	ClientMessages []ClientMessage
+	ServerMessages []ServerMessage
 
-	ServerInit  func(*ServerConn) error
 	DesktopName string
+
+	ServerInit func(*ServerConn) error
 
 	Width  int32
 	Height int32
@@ -106,16 +110,17 @@ func (s *Server) Serve(ln net.Listener) error {
 		default:
 			// client is behind; doesn't get this updated.
 		}
-		go conn.mainLoop()
+		go conn.serve()
 	}
 	panic("unreachable")
 }
 
 func (s *Server) newConn(c net.Conn) *ServerConn {
 	conn := &ServerConn{
-		s:         s,
-		c:         c,
-		MessageCh: make(chan ClientMessage, s.config.MaxConnMsg),
+		s:          s,
+		c:          c,
+		MessageInp: make(chan ClientMessage, s.config.MaxConnMsg),
+		MessageOut: make(chan ServerMessage, s.config.MaxConnMsg),
 	}
 	return conn
 }
@@ -307,7 +312,7 @@ FindAuth:
 		return fmt.Errorf("no suitable auth schemes found. server supported: %#v", serverSecurityTypes)
 	}
 
-	if err := authType.Handler(c); err != nil {
+	if err := authType.Handler(c, c.c); err != nil {
 		if err = binary.Write(c.c, binary.BigEndian, uint32(1)); err != nil {
 			return err
 		}
@@ -332,7 +337,8 @@ func (c *ServerConn) serverInit() error {
 
 // mainLoop reads messages sent from the server and routes them to the
 // proper channels for users of the client to read.
-func (c *ServerConn) mainLoop() {
+func (c *ServerConn) serve() {
+	var err error
 	defer c.Close()
 
 	// Build the map of available client messages
@@ -356,27 +362,49 @@ func (c *ServerConn) mainLoop() {
 		}
 	}
 
-	for {
-		var messageType uint8
-		if err := binary.Read(c.c, binary.BigEndian, &messageType); err != nil {
-			break
-		}
-		msg, ok := typeMap[messageType]
-		if !ok {
-			// Unsupported message type! Bad!
-			break
-		}
-		parsedMsg, err := msg.Read(c)
-		if err != nil {
-			break
-		}
+	go func() {
+		for {
+			var messageType uint8
+			if err = binary.Read(c.c, binary.BigEndian, &messageType); err != nil {
+				break
+			}
+			msg, ok := typeMap[messageType]
+			if !ok {
+				// Unsupported message type! Bad!
+				break
+			}
+			parsedMsg, err := msg.Read(c)
+			if err != nil {
+				break
+			}
 
-		if c.MessageCh == nil {
-			continue
-		}
+			if c.MessageInp == nil {
+				continue
+			}
 
-		c.MessageCh <- parsedMsg
-	}
+			c.MessageInp <- parsedMsg
+		}
+	}()
+
+	go func() {
+		for {
+			select {
+			case msg := <-c.MessageOut:
+				binaryMsg, err := msg.Write(c, c.c)
+				if err != nil {
+					break
+				}
+				if c.MessageOut == nil {
+					continue
+				}
+				err = binary.Write(c.c, binary.BigEndian, binaryMsg)
+				if err != nil {
+					break
+				}
+			}
+		}
+	}()
+	select {}
 }
 
 func (c *ServerConn) writeErrorReason(err error) {
