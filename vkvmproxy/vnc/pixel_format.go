@@ -3,6 +3,7 @@ package vnc
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 )
 
@@ -19,12 +20,14 @@ type PixelFormat struct {
 	BlueShift  uint8
 }
 
-func readPixelFormat(r io.Reader) (result *PixelFormat, err error) {
+func readPixelFormat(r io.Reader) (*PixelFormat, error) {
+	var err error
+	var result PixelFormat
 	var rawPixelFormat [16]byte
 	if _, err = io.ReadFull(r, rawPixelFormat[:]); err != nil {
 		return nil, err
 	}
-
+	fmt.Printf("%+v\n", rawPixelFormat)
 	var pfBoolByte uint8
 	brPF := bytes.NewReader(rawPixelFormat[:])
 	if err = binary.Read(brPF, binary.BigEndian, &result.BPP); err != nil {
@@ -75,7 +78,7 @@ func readPixelFormat(r io.Reader) (result *PixelFormat, err error) {
 		}
 	}
 
-	return result, nil
+	return &result, nil
 }
 
 func writePixelFormat(format *PixelFormat) ([]byte, error) {

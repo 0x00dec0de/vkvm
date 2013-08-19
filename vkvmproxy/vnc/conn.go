@@ -12,10 +12,10 @@ type Conn struct {
 	srv *Server
 	cli *Client
 
-	MessageCli <-chan *Message
+	MessageCli chan *Message
 	messagecli chan *Message
 
-	MessageSrv chan<- *Message
+	MessageSrv chan *Message
 	messagesrv chan *Message
 
 	PixelFormat *PixelFormat
@@ -27,16 +27,32 @@ type Conn struct {
 	Exclusive   bool
 }
 
-func (srv *Server) newConn(c net.Conn) *Conn {
+func (srv *Server) newConn(c *net.Conn) *Conn {
 	messagecli := make(chan *Message, srv.c.MaxMsg)
 	messagesrv := make(chan *Message, srv.c.MaxMsg)
+
+	defaultPixelFormat := &PixelFormat{
+		BPP:        32,
+		Depth:      24,
+		BigEndian:  false,
+		TrueColor:  true,
+		RedMax:     255,
+		GreenMax:   255,
+		BlueMax:    255,
+		RedShift:   16,
+		GreenShift: 8,
+		BlueShift:  0,
+	}
+
 	return &Conn{
-		s:          &c,
-		srv:        srv,
-		MessageCli: messagecli,
-		messagecli: messagecli,
-		MessageSrv: messagesrv,
-		messagesrv: messagesrv,
+		s:           c,
+		c:           c,
+		srv:         srv,
+		PixelFormat: defaultPixelFormat,
+		MessageCli:  messagecli,
+		messagecli:  messagecli,
+		MessageSrv:  messagesrv,
+		messagesrv:  messagesrv,
 	}
 }
 
@@ -44,12 +60,14 @@ func (cli *Client) newConn(c *net.Conn) *Conn {
 	messagecli := make(chan *Message, cli.c.MaxMsg)
 	messagesrv := make(chan *Message, cli.c.MaxMsg)
 	return &Conn{
-		s:          c,
-		cli:        cli,
-		MessageCli: messagecli,
-		messagecli: messagecli,
-		MessageSrv: messagesrv,
-		messagesrv: messagesrv,
+		c:           c,
+		s:           c,
+		cli:         cli,
+		PixelFormat: &PixelFormat{},
+		MessageCli:  messagecli,
+		messagecli:  messagecli,
+		MessageSrv:  messagesrv,
+		messagesrv:  messagesrv,
 	}
 }
 

@@ -23,18 +23,18 @@ func (msg *SetPixelFormatMsg) Type() uint8 {
 
 func (msg *SetPixelFormatMsg) Read(c *Conn, r io.Reader) (Message, error) {
 	var err error
-	var m *SetPixelFormatMsg
+	m := &SetPixelFormatMsg{}
 	// Read off the padding
 	var padding [3]uint8
 	if err = binary.Read(r, binary.BigEndian, &padding); err != nil {
 		return nil, err
 	}
-
+	var format *PixelFormat
 	// Read the pixel format
-	if m.PixelFormat, err = readPixelFormat(r); err != nil {
+	if format, err = readPixelFormat(r); err != nil {
 		return nil, err
 	}
-
+	m.PixelFormat = format
 	c.PixelFormat = m.PixelFormat
 	return m, nil
 }

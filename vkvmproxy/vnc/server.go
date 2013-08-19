@@ -17,12 +17,13 @@ type Server struct {
 
 type ServerConfig struct {
 	Version string
-	Width   int
-	Height  int
 
 	AuthTypes []AuthType
 	MaxConn   int
 	MaxMsg    int
+
+	Width  int
+	Height int
 
 	Messages []Message
 }
@@ -32,10 +33,10 @@ func NewServer(cfg *ServerConfig) *Server {
 		cfg.Version = "RFB 003.008\n"
 	}
 	if cfg.Width < 1 {
-		cfg.Width = 1
+		cfg.Width = 800
 	}
 	if cfg.Height < 1 {
-		cfg.Height = 1
+		cfg.Height = 600
 	}
 	if cfg.AuthTypes == nil {
 		cfg.AuthTypes = []AuthType{new(AuthTypeNone)}
@@ -48,43 +49,42 @@ func NewServer(cfg *ServerConfig) *Server {
 	}
 }
 
-func (s *Server) Serve(l net.Listener) error {
+func (srv *Server) Serve(l net.Listener) error {
 	for {
 		c, err := l.Accept()
 		if err != nil {
 			return err
 		}
-		conn := s.newConn(c)
-		if err := conn.versionHandshake(); err != nil {
+		conn := srv.newConn(&c)
+
+		if err := conn.serverVersionHandshake(); err != nil {
 			return err
 		}
-		if err := conn.securityHandshake(); err != nil {
+		if err := conn.serverSecurityHandshake(); err != nil {
 			return err
 		}
-		//		if err := conn.serverInit(); err != nil {
-		//		return err
-		//}
+		if err := conn.serverInit(); err != nil {
+			return err
+		}
 		select {
-		case s.conns <- conn:
+		case srv.conns <- conn:
 		default:
 		}
-		go conn.serve()
+		go conn.serverServe()
 	}
-	panic("something wrong")
 }
 
-func (c *Conn) serve() {
-	//	var err error
-	defer c.Close()
+func (c *Conn) serverServe() {
+	//	defer c.Close()
 
 	typeMap := make(map[uint8]Message)
 	defaultMessages := []Message{
-	//		new(SetPixelFormatMessage),
-	//	new(SetEncodingMessage),
-	//new(FrameBufferUpdateRequestMessage),
-	//new(KeyEventMessage),
-	//new(PointerEventMessage),
-	//new(ClientCutTextMessage),
+		new(SetPixelFormatMsg),
+		new(SetEncodingsMsg),
+		new(FramebufferUpdateRequestMsg),
+		new(KeyEventMsg),
+		new(PointerEventMsg),
+		new(ClientCutTextMsg),
 	}
 
 	for _, msg := range defaultMessages {
@@ -112,14 +112,14 @@ func (c *Conn) serve() {
 			if err != nil {
 				break
 			}
-
 			c.MessageSrv <- &parsedMsg
+			fmt.Printf("server sent: %+v\n", parsedMsg)
 		}
 	}()
 
 }
 
-func (c *Conn) versionHandshake() error {
+func (c *Conn) serverVersionHandshake() error {
 	var protocolVersion [12]byte
 	bw := bufio.NewWriter(*c.c)
 	br := bufio.NewReader(*c.c)
@@ -142,18 +142,16 @@ func (c *Conn) versionHandshake() error {
 	}
 
 	if maxMajor < 3 {
-		return fmt.Errorf("unsupported major version, less than 3: %d",
-			maxMajor)
+		return fmt.Errorf("unsupported major version, less than 3: %d", maxMajor)
 	}
 
 	if maxMinor < 8 {
-		return fmt.Errorf("unsupported minor version, less than 8: %d",
-			maxMinor)
+		return fmt.Errorf("unsupported minor version, less than 8: %d", maxMinor)
 	}
 	return nil
 }
 
-func (c *Conn) securityHandshake() error {
+func (c *Conn) serverSecurityHandshake() error {
 	bw := bufio.NewWriter(*c.c)
 	serverSecurityTypes := c.srv.c.AuthTypes
 
@@ -208,5 +206,49 @@ FindAuth:
 		return err
 	}
 
+	return nil
+}
+
+func (c *Conn) serverInit() error {
+	bw := bufio.NewWriter(*c.c)
+	var err error
+	var sharedFlag uint8
+	if err = binary.Read(*c.c, binary.BigEndian, &sharedFlag); err != nil {
+		return err
+	}
+	_ = sharedFlag
+
+	if err = binary.Write(bw, binary.BigEndian, uint16(c.srv.c.Width)); err != nil {
+		return err
+	}
+
+	if err = binary.Write(bw, binary.BigEndian, uint16(c.srv.c.Height)); err != nil {
+		return err
+	}
+
+	var format []byte
+	if format, err = writePixelFormat(c.PixelFormat); err != nil {
+		return err
+	}
+	if err = binary.Write(bw, binary.BigEndian, format); err != nil {
+		return err
+	}
+
+	padding := []uint8{0, 0, 0}
+	if err = binary.Write(bw, binary.BigEndian, padding); err != nil {
+		return err
+	}
+
+	nameBytes := []uint8(c.DesktopName)
+	nameLen := uint8(cap(nameBytes))
+	if err = binary.Write(bw, binary.BigEndian, nameLen); err != nil {
+		return err
+	}
+
+	if err = binary.Write(bw, binary.BigEndian, nameBytes); err != nil {
+		return err
+	}
+
+	bw.Flush()
 	return nil
 }
