@@ -6,15 +6,16 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"io"
+	"net"
 )
 
-type ServerAuthTypeVNC Proxy
+type ServerAuthTypeVNC byte
 
-func (p *ServerAuthTypeVNC) Type() uint8 {
+func (*ServerAuthTypeVNC) Type() uint8 {
 	return 2
 }
 
-func (p *ServerAuthTypeVNC) Handler(c *vnc.Conn, rw io.ReadWriter) (err error) {
+func (*ServerAuthTypeVNC) Handler(srv *vnc.Conn, rw io.ReadWriter) (err error) {
 	challenge := make([]uint8, 16)
 	response := make([]uint8, 16)
 
@@ -29,17 +30,23 @@ func (p *ServerAuthTypeVNC) Handler(c *vnc.Conn, rw io.ReadWriter) (err error) {
 	if err := binary.Read(rw, binary.BigEndian, &response); err != nil {
 		return err
 	}
+
 	// doing external auth
 
-	r, err := vnc.Client("127.0.0.1:5900", []byte("njkcnjd"))
-	rconn := &rConn{HostPort: "127.0.0.1:5900", Password: []byte("njkcnjd")}
-	err = p.Handler(rconn, rw)
+	cli := vnc.NewClient(&vnc.ClientConfig{AuthTypes: []vnc.AuthType{new(ClientAuthTypeVNC)}})
+
+	n, err := net.Dial("tcp", "127.0.0.1:5900")
 	if err != nil {
+		return err
+	}
+	var conn *vnc.Conn
+	if conn, err = cli.Serve(n); err != nil {
 		return err
 	}
 
 	p.Lock()
-	p.Targets[c] = rconn
+	rConn := &rConn{c: conn, password: []byte("njkcnjd")}
+	p.Targets[srv] = rConn
 	p.Unlock()
 
 	return nil
@@ -47,16 +54,18 @@ func (p *ServerAuthTypeVNC) Handler(c *vnc.Conn, rw io.ReadWriter) (err error) {
 
 type ClientAuthTypeVNC byte
 
-func (p *ClientAuthTypeVNC) Type() uint8 {
+func (*ClientAuthTypeVNC) Type() uint8 {
 	return 2
 }
 
-func (p *ClientAuthTypeVNC) Handler(c *vnc.Conn, rw io.ReadWriter) (err error) {
+func (*ClientAuthTypeVNC) Handler(c *vnc.Conn, rw io.ReadWriter) (err error) {
 	challenge := make([]uint8, 16)
 
 	if err := binary.Read(rw, binary.BigEndian, &challenge); err != nil {
 		return err
 	}
+
+	//external auth
 	pwd := []byte("njkcnjd")
 	if len(pwd) > 8 {
 		pwd = pwd[:8]

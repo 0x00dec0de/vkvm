@@ -31,26 +31,25 @@ func NewClient(cfg *ClientConfig) *Client {
 	}
 }
 
-func (cli *Client) Serve(c net.Conn) error {
+func (cli *Client) Serve(c net.Conn) (*Conn, error) {
+	var err error
 	conn := cli.newConn(&c)
-	if err := conn.clientVersionHandshake(); err != nil {
-		return err
+	if err = conn.clientVersionHandshake(); err != nil {
+		return nil, err
 	}
-	if err := conn.clientSecurityHandshake(); err != nil {
-		return err
+	if err = conn.clientSecurityHandshake(); err != nil {
+		return nil, err
 	}
-	fmt.Printf("%+v\n", conn)
-	if err := conn.clientInit(); err != nil {
-		return err
+	if err = conn.clientInit(); err != nil {
+		return nil, err
 	}
 	go conn.clientServe()
-	return nil
+	return conn, err
 }
 
 func (c *Conn) clientVersionHandshake() error {
 	var protocolVersion [12]byte
 
-	// 7.1.1, read the ProtocolVersion message sent by the server.
 	if err := binary.Read(*c.c, binary.BigEndian, &protocolVersion); err != nil {
 		return err
 	}
@@ -69,7 +68,6 @@ func (c *Conn) clientVersionHandshake() error {
 		return fmt.Errorf("unsupported minor version, less than 8: %d", maxMinor)
 	}
 
-	// Respond with the version we will support
 	if err = binary.Write(*c.c, binary.BigEndian, []byte("RFB 003.008\n")); err != nil {
 		return err
 	}
@@ -221,11 +219,25 @@ func (c *Conn) clientServe() {
 			}
 			parsedMsg, err := msg.Read(c, *c.c)
 			if err != nil {
+				fmt.Printf("cli.MessageSrv: %T %s\n", msg, err.Error())
 				break
+			} else {
+				fmt.Printf("cli.MessageSrv: %T\n", msg)
 			}
-
-			c.MessageCli <- &parsedMsg
+			c.MessageSrv <- &parsedMsg
 		}
 	}()
-
+	for {
+		select {
+		case msg := <-c.MessageCli:
+			m := *msg
+			err := m.Write(c, *c.c)
+			if err != nil {
+				fmt.Printf("cli.MessageCli: %T %s\n", msg, err.Error())
+				break
+			} else {
+				fmt.Printf("cli.MessageCli: %T\n", msg)
+			}
+		}
+	}
 }

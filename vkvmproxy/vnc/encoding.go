@@ -65,7 +65,6 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 }
 
 func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
-	/*
 		bytesPerPixel := c.PixelFormat.BPP / 8
 		pixelBytes := make([]uint8, bytesPerPixel)
 

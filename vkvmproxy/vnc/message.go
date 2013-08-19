@@ -71,10 +71,10 @@ func (msg *SetEncodingsMsg) Type() uint8 {
 }
 
 func (msg *SetEncodingsMsg) Read(c *Conn, r io.Reader) (Message, error) {
-	var m *SetEncodingsMsg
+	m := &SetEncodingsMsg{}
 
 	var padding [1]byte
-	if err := binary.Read(r, binary.BigEndian, padding); err != nil {
+	if err := binary.Read(r, binary.BigEndian, &padding); err != nil {
 		return nil, err
 	}
 
@@ -106,6 +106,7 @@ func (msg *SetEncodingsMsg) Read(c *Conn, r io.Reader) (Message, error) {
 
 func (msg *SetEncodingsMsg) Write(c *Conn, w io.Writer) error {
 	bw := bufio.NewWriter(w)
+
 	encNumber := uint16(len(msg.Encs))
 	data := []interface{}{
 		uint8(2),
@@ -142,7 +143,7 @@ func (msg *FramebufferUpdateRequestMsg) Type() uint8 {
 }
 
 func (msg *FramebufferUpdateRequestMsg) Read(c *Conn, r io.Reader) (Message, error) {
-	var m *FramebufferUpdateRequestMsg
+	m := &FramebufferUpdateRequestMsg{}
 
 	data := []interface{}{
 		&m.Incremental,
@@ -192,7 +193,7 @@ func (msg *KeyEventMsg) Type() uint8 {
 }
 
 func (msg *KeyEventMsg) Read(c *Conn, r io.Reader) (Message, error) {
-	var m *KeyEventMsg
+	m := &KeyEventMsg{}
 
 	if err := binary.Read(r, binary.BigEndian, &m.Down); err != nil {
 		return nil, err
@@ -243,7 +244,7 @@ func (msg *PointerEventMsg) Type() uint8 {
 }
 
 func (msg *PointerEventMsg) Read(c *Conn, r io.Reader) (Message, error) {
-	var m *PointerEventMsg
+	m := &PointerEventMsg{}
 
 	data := []interface{}{
 		&m.Mask,
@@ -289,7 +290,7 @@ func (msg *ClientCutTextMsg) Type() uint8 {
 }
 
 func (msg *ClientCutTextMsg) Read(c *Conn, r io.Reader) (Message, error) {
-	var m *ClientCutTextMsg
+	m := &ClientCutTextMsg{}
 	// Read off the padding
 	var padding [3]byte
 	if err := binary.Read(r, binary.BigEndian, &padding); err != nil {
@@ -347,7 +348,7 @@ func (msg *FramebufferUpdateMsg) Type() uint8 {
 }
 
 func (msg *FramebufferUpdateMsg) Read(c *Conn, r io.Reader) (Message, error) {
-	var m *FramebufferUpdateMsg
+	m := &FramebufferUpdateMsg{}
 	// Read off the padding
 	var padding [1]byte
 	if err := binary.Read(r, binary.BigEndian, &padding); err != nil {
@@ -475,7 +476,7 @@ func (msg *SetColorMapEntriesMsg) Type() uint8 {
 
 func (msg *SetColorMapEntriesMsg) Read(c *Conn, r io.Reader) (Message, error) {
 	var padding [1]byte
-	var m *SetColorMapEntriesMsg
+	m := &SetColorMapEntriesMsg{}
 	if err := binary.Read(r, binary.BigEndian, &padding); err != nil {
 		return nil, err
 	}
@@ -596,9 +597,9 @@ func (msg *ServerCutTextMsg) Write(c *Conn, w io.Writer) error {
 }
 
 func (msg *ServerCutTextMsg) Read(c *Conn, r io.Reader) (Message, error) {
-	var m *ServerCutTextMsg
+	m := &ServerCutTextMsg{}
 	var padding [1]byte
-	if err := binary.Read(r, binary.BigEndian, padding); err != nil {
+	if err := binary.Read(r, binary.BigEndian, &padding); err != nil {
 		return nil, err
 	}
 
