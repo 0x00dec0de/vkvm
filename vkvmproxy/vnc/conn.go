@@ -1,7 +1,6 @@
 package vnc
 
 import (
-	"bufio"
 	"encoding/binary"
 	"net"
 )
@@ -12,8 +11,6 @@ type Conn struct {
 
 	srv *Server
 	cli *Client
-	br  *bufio.Reader
-	bw  *bufio.Writer
 
 	MessageCli <-chan *Message
 	messagecli chan *Message
@@ -36,8 +33,6 @@ func (srv *Server) newConn(c net.Conn) *Conn {
 	return &Conn{
 		s:          &c,
 		srv:        srv,
-		br:         bufio.NewReader(c),
-		bw:         bufio.NewWriter(c),
 		MessageCli: messagecli,
 		messagecli: messagecli,
 		MessageSrv: messagesrv,
@@ -51,8 +46,6 @@ func (cli *Client) newConn(c *net.Conn) *Conn {
 	return &Conn{
 		s:          c,
 		cli:        cli,
-		br:         bufio.NewReader(*c),
-		bw:         bufio.NewWriter(*c),
 		MessageCli: messagecli,
 		messagecli: messagecli,
 		MessageSrv: messagesrv,
@@ -70,6 +63,6 @@ func (c *Conn) Close() {
 }
 
 func (c *Conn) readByte() (b byte, err error) {
-	err = binary.Read(c.br, binary.BigEndian, &b)
+	err = binary.Read(*c.c, binary.BigEndian, &b)
 	return
 }

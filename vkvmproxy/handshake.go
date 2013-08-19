@@ -1,6 +1,8 @@
 package main
 
+/*
 import (
+	"./vnc"
 	"bytes"
 	"crypto/des"
 	"crypto/rand"
@@ -10,15 +12,15 @@ import (
 	"net"
 )
 
-func (p *Proxy) lHandshake(c *lConn) (err error) {
+func (p *Proxy) lHandler(c *vnc.Conn, rw io.ReadWriter) (err error) {
 	buffer := new(bytes.Buffer)
 	var protocolVersion [12]byte
-	if _, err := c.c.Write([]byte("RFB 003.008\n")); err != nil {
+	if _, err := io.Write(rw, []byte("RFB 003.008\n")); err != nil {
 		return err
 	}
 
 	// 7.1.1, read the ProtocolVersion message sent by the server.
-	if _, err := io.ReadFull(c.c, protocolVersion[:]); err != nil {
+	if _, err := io.ReadFull(rw, protocolVersion[:]); err != nil {
 		return err
 	}
 
@@ -44,14 +46,14 @@ func (p *Proxy) lHandshake(c *lConn) (err error) {
 		return err
 	}
 
-	if err := binary.Write(c.c, binary.BigEndian, buffer.Bytes()); err != nil {
+	if err := binary.Write(rw, binary.BigEndian, buffer.Bytes()); err != nil {
 		return err
 	}
 
 	buffer.Reset()
 
 	var auth uint8
-	if err := binary.Read(c.c, binary.BigEndian, &auth); err != nil {
+	if err := binary.Read(rw, binary.BigEndian, &auth); err != nil {
 		return err
 	}
 	if auth != 2 {
@@ -65,21 +67,21 @@ func (p *Proxy) lHandshake(c *lConn) (err error) {
 	if err != nil {
 		return err
 	}
-	if err := binary.Write(c.c, binary.BigEndian, challenge); err != nil {
+	if err := binary.Write(rw, binary.BigEndian, challenge); err != nil {
 		return err
 	}
 
-	if err := binary.Read(c.c, binary.BigEndian, &response); err != nil {
+	if err := binary.Read(rw, binary.BigEndian, &response); err != nil {
 		return err
 	}
 
 	rconn := &rConn{HostPort: "127.0.0.1:5900", Password: []byte("njkcnjd")}
-	err = p.rHandshake(rconn)
+	err = p.rHandshake(rconn, rw)
 	if err != nil {
 		return err
 	}
 
-	if err := binary.Write(c.c, binary.BigEndian, uint8(0)); err != nil {
+	if err := binary.Write(rw, binary.BigEndian, uint32(0)); err != nil {
 		return err
 	}
 
@@ -90,7 +92,7 @@ func (p *Proxy) lHandshake(c *lConn) (err error) {
 	return nil
 }
 
-func (p *Proxy) rHandshake(rc *rConn) (err error) {
+func (p *Proxy) rHandshake(rc *rConn, rw io.ReadWriter) (err error) {
 
 	c, err := net.Dial("tcp", rc.HostPort)
 	if err != nil {
@@ -183,3 +185,4 @@ func (p *Proxy) rHandshake(rc *rConn) (err error) {
 
 	return nil
 }
+*/

@@ -1,6 +1,7 @@
 package vnc
 
 import (
+	"bufio"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -107,12 +108,12 @@ func (c *Conn) serve() {
 				// Unsupported message type! Bad!
 				break
 			}
-			parsedMsg, err := msg.Read(c, *c.c, *c.br)
+			parsedMsg, err := msg.Read(c, *c.c)
 			if err != nil {
 				break
 			}
 
-			c.MessageSrv <- parsedMsg
+			c.MessageSrv <- &parsedMsg
 		}
 	}()
 
@@ -120,15 +121,17 @@ func (c *Conn) serve() {
 
 func (c *Conn) versionHandshake() error {
 	var protocolVersion [12]byte
+	bw := bufio.NewWriter(*c.c)
+	br := bufio.NewReader(*c.c)
 
 	// Respond with the version we will support
-	if _, err := c.bw.WriteString(c.srv.c.Version); err != nil {
+	if _, err := bw.WriteString(c.srv.c.Version); err != nil {
 		return err
 	}
-	c.bw.Flush()
+	bw.Flush()
 
 	// 7.1.1, read the ProtocolVersion message sent by the server.
-	if _, err := io.ReadFull(c.br, protocolVersion[:]); err != nil {
+	if _, err := io.ReadFull(br, protocolVersion[:]); err != nil {
 		return err
 	}
 
@@ -151,6 +154,7 @@ func (c *Conn) versionHandshake() error {
 }
 
 func (c *Conn) securityHandshake() error {
+	bw := bufio.NewWriter(*c.c)
 	serverSecurityTypes := c.srv.c.AuthTypes
 
 	var sectypes []uint8
@@ -187,16 +191,16 @@ FindAuth:
 		}
 
 		reasonLen := uint32(len(err.Error()))
-		if err = binary.Write(c.bw, binary.BigEndian, reasonLen); err != nil {
+		if err = binary.Write(bw, binary.BigEndian, reasonLen); err != nil {
 			return err
 		}
 
 		reason := []byte(err.Error())
-		if err = binary.Write(c.bw, binary.BigEndian, &reason); err != nil {
+		if err = binary.Write(bw, binary.BigEndian, &reason); err != nil {
 			return err
 		}
 
-		c.bw.Flush()
+		bw.Flush()
 		return err
 	}
 
