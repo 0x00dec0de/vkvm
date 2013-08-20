@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	_ "fmt"
 	"io"
 )
 
@@ -354,26 +355,21 @@ func (msg *FramebufferUpdateMsg) Read(c *Conn, r io.Reader) (Message, error) {
 	if err := binary.Read(r, binary.BigEndian, &padding); err != nil {
 		return nil, err
 	}
-
 	var numRects uint16
 	if err := binary.Read(r, binary.BigEndian, &numRects); err != nil {
 		return nil, err
 	}
-
 	// Build the map of encodings supported
 	encMap := make(map[int32]Encoding)
 	for _, enc := range c.Encs {
 		encMap[enc.Type()] = enc
 	}
-
 	// We must always support the raw encoding
 	rawEnc := new(RawEncoding)
 	encMap[rawEnc.Type()] = rawEnc
-
 	rects := make([]Rectangle, numRects)
 	for i := uint16(0); i < numRects; i++ {
 		var encodingType int32
-
 		rect := &rects[i]
 		data := []interface{}{
 			&rect.X,
@@ -382,13 +378,11 @@ func (msg *FramebufferUpdateMsg) Read(c *Conn, r io.Reader) (Message, error) {
 			&rect.Height,
 			&encodingType,
 		}
-
 		for _, val := range data {
 			if err := binary.Read(r, binary.BigEndian, val); err != nil {
 				return nil, err
 			}
 		}
-
 		enc, ok := encMap[encodingType]
 		if !ok {
 			return nil, errors.New("unsupported encoding type") //, encodingType)
@@ -400,8 +394,7 @@ func (msg *FramebufferUpdateMsg) Read(c *Conn, r io.Reader) (Message, error) {
 			return nil, err
 		}
 	}
-
-	m.Rectangles = rects
+	m.Rectangles = append(m.Rectangles, rects...)
 	return m, nil
 }
 
@@ -421,50 +414,27 @@ func (msg *FramebufferUpdateMsg) Write(c *Conn, w io.Writer) error {
 		}
 	}
 
-	// Build the map of encodings supported
-	encMap := make(map[int32]Encoding)
-	for _, enc := range c.Encs {
-		encMap[enc.Type()] = enc
-	}
-
-	// We must always support the raw encoding
-	rawEnc := new(RawEncoding)
-	encMap[rawEnc.Type()] = rawEnc
-
-	rects := make([]Rectangle, numRects)
 	for i := uint16(0); i < numRects; i++ {
-		var encodingType int32
-
-		rect := &rects[i]
+		rect := msg.Rectangles[i]
 		data := []interface{}{
-			&rect.X,
-			&rect.Y,
-			&rect.Width,
-			&rect.Height,
-			&encodingType,
+			rect.X,
+			rect.Y,
+			rect.Width,
+			rect.Height,
+			rect.Enc.Type(),
 		}
 
 		for _, val := range data {
 			if err := binary.Write(bw, binary.BigEndian, val); err != nil {
 				return err
 			}
-
-			enc, ok := encMap[encodingType]
-			if !ok {
-				return errors.New("unsupported encoding type") //, encodingType)
-			}
-			buffer := new(bytes.Buffer)
-			var err error
-			if err = enc.Write(c, rect, buffer); err != nil {
-				return err
-			}
-			if err = binary.Write(bw, binary.BigEndian, buffer.Bytes()); err != nil {
-				return err
-			}
-			buffer.Reset()
 		}
-
+		var err error
+		if err = rect.Enc.Write(c, &rect, bw); err != nil {
+			return err
+		}
 	}
+	bw.Flush()
 	return nil
 }
 

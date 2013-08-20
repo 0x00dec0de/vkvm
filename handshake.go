@@ -45,6 +45,7 @@ func (*ServerAuthTypeVNC) Handler(srv *vnc.Conn, rw io.ReadWriter) (err error) {
 	}
 
 	p.Lock()
+	srv.DesktopName = conn.DesktopName
 	rConn := &rConn{c: conn, password: []byte("njkcnjd")}
 	p.Targets[srv] = rConn
 	p.Unlock()
