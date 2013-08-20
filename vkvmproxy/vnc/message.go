@@ -452,12 +452,15 @@ func (msg *FramebufferUpdateMsg) Write(c *Conn, w io.Writer) error {
 			if !ok {
 				return errors.New("unsupported encoding type") //, encodingType)
 			}
-
+			buffer := new(bytes.Buffer)
 			var err error
-			if err = enc.Write(c, rect, w); err != nil {
+			if err = enc.Write(c, rect, buffer); err != nil {
 				return err
 			}
-
+			if err = binary.Write(bw, binary.BigEndian, buffer.Bytes()); err != nil {
+				return err
+			}
+			buffer.Reset()
 		}
 
 	}

@@ -15,7 +15,26 @@ type Encoding interface {
 const (
 	encodingRaw = iota
 	encodingCopyRect
+	encodingDesktopSize = -223
 )
+
+type DesktopSizeEncoding struct {
+	Width  uint16
+	Height uint16
+}
+
+func (*DesktopSizeEncoding) Type() int32 {
+	return encodingDesktopSize
+}
+
+func (*DesktopSizeEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error) {
+	return nil, nil
+}
+
+func (*DesktopSizeEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
+
+	return nil
+}
 
 type RawEncoding struct {
 	Colors []Color
@@ -65,43 +84,42 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 }
 
 func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
-	/*
-		bytesPerPixel := c.PixelFormat.BPP / 8
-		pixelBytes := make([]uint8, bytesPerPixel)
+	bytesPerPixel := c.PixelFormat.BPP / 8
+	pixelBytes := make([]uint8, bytesPerPixel)
 
-		var byteOrder binary.ByteOrder = binary.LittleEndian
-		if c.PixelFormat.BigEndian {
-			byteOrder = binary.BigEndian
-		}
+	var byteOrder binary.ByteOrder = binary.LittleEndian
+	if c.PixelFormat.BigEndian {
+		byteOrder = binary.BigEndian
+	}
 
-		colors := make([]Color, rect.Height*rect.Width)
-		for y := uint16(0); y < rect.Height; y++ {
-			for x := uint16(0); x < rect.Width; x++ {
-				if _, err := io.ReadFull(r, pixelBytes); err != nil {
-					return nil, err
-				}
+	colors := make([]Color, rect.Height*rect.Width)
+	for y := uint16(0); y < rect.Height; y++ {
+		for x := uint16(0); x < rect.Width; x++ {
+			if _, err := w.Write(r, pixelBytes); err != nil {
+				return nil, err
+			}
 
-				var rawPixel uint32
-				if c.PixelFormat.BPP == 8 {
-					rawPixel = uint32(pixelBytes[0])
-				} else if c.PixelFormat.BPP == 16 {
-					rawPixel = uint32(byteOrder.Uint16(pixelBytes))
-				} else if c.PixelFormat.BPP == 32 {
-					rawPixel = byteOrder.Uint32(pixelBytes)
-				}
+			var rawPixel uint32
+			if c.PixelFormat.BPP == 8 {
+				rawPixel = uint32(pixelBytes[0])
+			} else if c.PixelFormat.BPP == 16 {
+				rawPixel = uint32(byteOrder.Uint16(pixelBytes))
+			} else if c.PixelFormat.BPP == 32 {
+				rawPixel = byteOrder.Uint32(pixelBytes)
+			}
 
-				color := &colors[x+y]
-				if c.PixelFormat.TrueColor {
-					color.R = uint16((rawPixel << c.PixelFormat.RedShift) & uint32(c.PixelFormat.RedMax))
-					color.G = uint16((rawPixel << c.PixelFormat.GreenShift) & uint32(c.PixelFormat.GreenMax))
-					color.B = uint16((rawPixel << c.PixelFormat.BlueShift) & uint32(c.PixelFormat.BlueMax))
-				} else {
-					*color = c.ColorMap[rawPixel]
-				}
+			color := &colors[x+y]
+			if c.PixelFormat.TrueColor {
+				color.R = uint16((rawPixel << c.PixelFormat.RedShift) & uint32(c.PixelFormat.RedMax))
+				color.G = uint16((rawPixel << c.PixelFormat.GreenShift) & uint32(c.PixelFormat.GreenMax))
+				color.B = uint16((rawPixel << c.PixelFormat.BlueShift) & uint32(c.PixelFormat.BlueMax))
+			} else {
+				*color = c.ColorMap[rawPixel]
 			}
 		}
+	}
 
-		return &RawEncoding{colors}, nil
-	*/
+	return &RawEncoding{colors}, nil
+
 	return nil
 }
