@@ -3,7 +3,6 @@ package vnc
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"io"
 )
 
@@ -27,7 +26,6 @@ func readPixelFormat(r io.Reader) (*PixelFormat, error) {
 	if _, err = io.ReadFull(r, rawPixelFormat[:]); err != nil {
 		return nil, err
 	}
-	fmt.Printf("%+v\n", rawPixelFormat)
 	var pfBoolByte uint8
 	brPF := bytes.NewReader(rawPixelFormat[:])
 	if err = binary.Read(brPF, binary.BigEndian, &result.BPP); err != nil {

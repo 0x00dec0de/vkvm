@@ -110,13 +110,27 @@ func (c *Conn) serverServe() {
 			}
 			parsedMsg, err := msg.Read(c, *c.c)
 			if err != nil {
+				fmt.Printf("%T: %s\n", msg, err.Error())
 				break
+			} else {
+				fmt.Printf("srv.MessageCli: %T\n", msg)
 			}
-			c.MessageSrv <- &parsedMsg
-			fmt.Printf("server sent: %+v\n", parsedMsg)
+			c.MessageCli <- &parsedMsg
 		}
 	}()
-
+	for {
+		select {
+		case msg := <-c.MessageSrv:
+			m := *msg
+			err := m.Write(c, *c.c)
+			if err != nil {
+				fmt.Printf("%T %s\n", msg, err.Error())
+				break
+			} else {
+				fmt.Printf("srv.MessageSrv: %T\n", msg)
+			}
+		}
+	}
 }
 
 func (c *Conn) serverVersionHandshake() error {

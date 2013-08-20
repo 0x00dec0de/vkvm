@@ -13,30 +13,16 @@ type Proxy struct {
 }
 
 type rConn struct {
-	*vnc.Conn
+	c         *vnc.Conn
 	challenge [16]byte
+	password  []byte
 }
 
+var p Proxy
+
 func main() {
-	var p Proxy
 	p.Targets = make(map[*vnc.Conn]*rConn)
 
-	/*
-		///
-		d, err := net.Dial("tcp", "127.0.0.1:5900")
-		if err != nil {
-			log.Fatalf(err.Error())
-		}
-
-		c := vnc.NewClient(&vnc.ClientConfig{AuthTypes: []vnc.AuthType{new(ClientAuthTypeVNC)}})
-		go func() {
-			err = c.Serve(d)
-			if err != nil {
-				log.Fatalf("vnc proxy ended with: %s", err.Error())
-			}
-		}()
-		///
-	*/
 	l, err := net.Listen("tcp", "127.0.0.1:6900")
 	if err != nil {
 		log.Fatalf(err.Error())
@@ -55,21 +41,21 @@ func main() {
 }
 
 func (p *Proxy) handleConn(lc *vnc.Conn) {
-	log.Printf("conn: %+v\n", lc)
-	var rc *rConn
 	p.Lock()
-	rc, ok := p.Targets[lc]
+	c, ok := p.Targets[lc]
 	p.Unlock()
 	if !ok {
 		return
 	}
-	defer rc.Close()
-	defer lc.Close()
+	rc := c.c
 	for {
 		select {
-		case msg := <-lc.MessageSrv:
-			log.Printf("%+v\n", msg)
-
+		case msg := <-lc.MessageCli:
+			//			log.Printf("%+v\n", msg)
+			rc.MessageCli <- msg
+		case msg := <-rc.MessageSrv:
+			//		log.Printf("%+v\n", msg)
+			lc.MessageSrv <- msg
 		}
 	}
 }
