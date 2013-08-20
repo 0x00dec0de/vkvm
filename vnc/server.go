@@ -33,10 +33,10 @@ func NewServer(cfg *ServerConfig) *Server {
 		cfg.Version = "RFB 003.008\n"
 	}
 	if cfg.Width < 1 {
-		cfg.Width = 640
+		cfg.Width = 1920
 	}
 	if cfg.Height < 1 {
-		cfg.Height = 480
+		cfg.Height = 1080
 	}
 	if cfg.AuthTypes == nil {
 		cfg.AuthTypes = []AuthType{new(AuthTypeNone)}
@@ -107,13 +107,11 @@ func (c *Conn) serverServe() {
 			if !ok {
 				// Unsupported message type! Bad!
 				return
-				break
 			}
 			parsedMsg, err := msg.Read(c, *c.c)
 			if err != nil {
 				fmt.Printf("server<-client: %+v: %s\n", msg, err.Error())
 				return
-				break
 			} else {
 				fmt.Printf("server<-client: %+v\n", msg)
 			}
@@ -128,7 +126,6 @@ func (c *Conn) serverServe() {
 			if err != nil {
 				fmt.Printf("server->client: %+v: %s\n", msg, err.Error())
 				return
-				break
 			} else {
 				fmt.Printf("server->client: %+v\n", m)
 			}

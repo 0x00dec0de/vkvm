@@ -216,13 +216,11 @@ func (c *Conn) clientServe() {
 			if !ok {
 				// Unsupported message type! Bad!
 				return
-				break
 			}
 			parsedMsg, err := msg.Read(c, *c.c)
 			if err != nil {
 				fmt.Printf("client<-server: %T %s\n", msg, err.Error())
 				return
-				break
 			} else {
 				fmt.Printf("client<-server: %+v\n", msg)
 			}
@@ -237,7 +235,6 @@ func (c *Conn) clientServe() {
 			if err != nil {
 				fmt.Printf("client->server: %T %s\n", msg, err.Error())
 				return
-				break
 			} else {
 				fmt.Printf("client->server: %+v\n", m)
 			}

@@ -99,7 +99,10 @@ func (msg *SetEncodingsMsg) Read(c *Conn, r io.Reader) (Message, error) {
 	rawEnc := new(RawEncoding)
 	encMap[rawEnc.Type()] = rawEnc
 
-	m.Encs = append(m.Encs, rawEnc)
+	DesktopSizeEnc := new(DesktopSizeEncoding)
+	encMap[DesktopSizeEnc.Type()] = DesktopSizeEnc
+
+	m.Encs = append(m.Encs, rawEnc, DesktopSizeEnc)
 	c.Encs = m.Encs
 
 	return m, nil
@@ -108,7 +111,7 @@ func (msg *SetEncodingsMsg) Read(c *Conn, r io.Reader) (Message, error) {
 func (msg *SetEncodingsMsg) Write(c *Conn, w io.Writer) error {
 	bw := bufio.NewWriter(w)
 
-	encNumber := uint16(len(msg.Encs))
+	encNumber := uint16(cap(msg.Encs))
 	data := []interface{}{
 		uint8(2),
 		uint8(0),

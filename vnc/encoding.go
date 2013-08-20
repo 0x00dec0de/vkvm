@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"strconv"
 )
 
 type Encoding interface {
@@ -68,7 +69,6 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 			} else if c.PixelFormat.BPP == 32 {
 				rawPixel = byteOrder.Uint32(pixelBytes)
 			}
-
 			color := &colors[x+y]
 			if c.PixelFormat.TrueColor {
 				color.R = uint16((rawPixel << c.PixelFormat.RedShift) & uint32(c.PixelFormat.RedMax))
@@ -91,15 +91,22 @@ func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 	if c.PixelFormat.BigEndian {
 		byteOrder = binary.BigEndian
 	}
+	colors := enc.Colors
 	for y := uint16(0); y < rect.Height; y++ {
 		for x := uint16(0); x < rect.Width; x++ {
 			var rawPixel uint32
-			color := &enc.Colors[x+y]
+			color := &colors[x+y]
 			if c.PixelFormat.TrueColor {
-				rawPixel = uint32((color.R << c.PixelFormat.RedShift) |
-					(color.G << c.PixelFormat.GreenShift) |
-					(color.B << c.PixelFormat.BlueShift))
+
+				r16 := color.R // | c.PixelFormat.RedMax
+				g16 := color.G // | c.PixelFormat.GreenMax
+				b16 := color.B // | c.PixelFormat.BlueMax
+
+				rawPixel = uint32(((r16 << c.PixelFormat.RedShift) | c.PixelFormat.RedMax) |
+					((g16 << c.PixelFormat.GreenShift) | c.PixelFormat.GreenMax) |
+					((b16 << c.PixelFormat.BlueShift) | c.PixelFormat.BlueMax))
 			} else {
+				//				rawPixel = c.ColorMap
 			}
 			var v interface{}
 			switch c.PixelFormat.BPP {
