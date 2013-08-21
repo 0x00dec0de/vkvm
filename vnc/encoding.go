@@ -1,11 +1,9 @@
 package vnc
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
-	"strconv"
 )
 
 type Encoding interface {
@@ -51,6 +49,7 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 	m := &RawEncoding{}
 	bytesPerPixel := c.PixelFormat.BPP / 8
 	pixelBytes := make([]uint8, bytesPerPixel)
+	//	fmt.Printf("r bytes: %d\n", cap(pixelBytes))
 	var byteOrder binary.ByteOrder = binary.LittleEndian
 	if c.PixelFormat.BigEndian {
 		byteOrder = binary.BigEndian
@@ -71,12 +70,15 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 			}
 			color := &colors[x+y]
 			if c.PixelFormat.TrueColor {
-				color.R = uint16((rawPixel << c.PixelFormat.RedShift) & uint32(c.PixelFormat.RedMax))
-				color.G = uint16((rawPixel << c.PixelFormat.GreenShift) & uint32(c.PixelFormat.GreenMax))
-				color.B = uint16((rawPixel << c.PixelFormat.BlueShift) & uint32(c.PixelFormat.BlueMax))
+				color.R = uint16((rawPixel >> c.PixelFormat.RedShift) & uint32(c.PixelFormat.RedMax))
+				color.G = uint16((rawPixel >> c.PixelFormat.GreenShift) & uint32(c.PixelFormat.GreenMax))
+				color.B = uint16((rawPixel >> c.PixelFormat.BlueShift) & uint32(c.PixelFormat.BlueMax))
 			} else {
 				*color = c.ColorMap[rawPixel]
 			}
+			//			if rawPixel != 0 {
+			//			fmt.Printf("r:%+v\n", pixelBytes)
+			//	}
 		}
 	}
 	m.Colors = colors
@@ -84,9 +86,8 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 }
 
 func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
-	bytesPerPixel := c.PixelFormat.BPP / 8
-	pixelBytes := make([]uint8, bytesPerPixel)
-	buffer := bytes.NewBuffer(pixelBytes)
+	//	bytesPerPixel := c.PixelFormat.BPP / 8
+	//	pixelBytes := make([]uint8, bytesPerPixel)
 	var byteOrder binary.ByteOrder = binary.LittleEndian
 	if c.PixelFormat.BigEndian {
 		byteOrder = binary.BigEndian
@@ -97,16 +98,9 @@ func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 			var rawPixel uint32
 			color := &colors[x+y]
 			if c.PixelFormat.TrueColor {
-
-				r16 := color.R // | c.PixelFormat.RedMax
-				g16 := color.G // | c.PixelFormat.GreenMax
-				b16 := color.B // | c.PixelFormat.BlueMax
-
-				rawPixel = uint32(((r16 << c.PixelFormat.RedShift) | c.PixelFormat.RedMax) |
-					((g16 << c.PixelFormat.GreenShift) | c.PixelFormat.GreenMax) |
-					((b16 << c.PixelFormat.BlueShift) | c.PixelFormat.BlueMax))
+				rawPixel = uint32(color.R<<c.PixelFormat.RedShift | color.G<<c.PixelFormat.GreenShift | color.B<<c.PixelFormat.BlueShift)
 			} else {
-				//				rawPixel = c.ColorMap
+
 			}
 			var v interface{}
 			switch c.PixelFormat.BPP {
@@ -119,14 +113,11 @@ func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 			default:
 				return fmt.Errorf("TODO: BPP of %d", c.PixelFormat.BPP)
 			}
-			if err := binary.Write(buffer, byteOrder, v); err != nil {
+			if err := binary.Write(w, byteOrder, v); err != nil {
 				return err
 			}
-			if err := binary.Write(w, byteOrder, buffer.Bytes()); err != nil {
-				return err
-			}
-			buffer.Reset()
 		}
 	}
+
 	return nil
 }

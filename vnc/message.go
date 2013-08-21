@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
-	_ "fmt"
+	"fmt"
 	"io"
 )
 
@@ -370,6 +370,9 @@ func (msg *FramebufferUpdateMsg) Read(c *Conn, r io.Reader) (Message, error) {
 	// We must always support the raw encoding
 	rawEnc := new(RawEncoding)
 	encMap[rawEnc.Type()] = rawEnc
+	DesktopSizeEnc := new(DesktopSizeEncoding)
+	encMap[DesktopSizeEnc.Type()] = DesktopSizeEnc
+
 	rects := make([]Rectangle, numRects)
 	for i := uint16(0); i < numRects; i++ {
 		var encodingType int32
@@ -397,6 +400,7 @@ func (msg *FramebufferUpdateMsg) Read(c *Conn, r io.Reader) (Message, error) {
 			return nil, err
 		}
 	}
+	fmt.Printf("r rects: %d\n", numRects)
 	m.Rectangles = append(m.Rectangles, rects...)
 	return m, nil
 }
@@ -416,7 +420,7 @@ func (msg *FramebufferUpdateMsg) Write(c *Conn, w io.Writer) error {
 			return err
 		}
 	}
-
+	fmt.Printf("w rects: %d\n", numRects)
 	for i := uint16(0); i < numRects; i++ {
 		rect := msg.Rectangles[i]
 		data := []interface{}{

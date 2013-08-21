@@ -22,8 +22,8 @@ type Conn struct {
 
 	ColorMap [256]Color
 
-	Quit chan bool
-
+	Quit        chan bool
+	Ready       bool
 	Encs        []Encoding
 	DesktopName string
 	Exclusive   bool
@@ -33,6 +33,7 @@ func (srv *Server) newConn(c *net.Conn) *Conn {
 	messagecli := make(chan *Message, srv.c.MaxMsg)
 	messagesrv := make(chan *Message, srv.c.MaxMsg)
 	quit := make(chan bool)
+
 	defaultPixelFormat := &PixelFormat{
 		BPP:        32,
 		Depth:      24,
@@ -56,6 +57,7 @@ func (srv *Server) newConn(c *net.Conn) *Conn {
 		MessageSrv:  messagesrv,
 		messagesrv:  messagesrv,
 		Quit:        quit,
+		Ready:       false,
 	}
 }
 
@@ -63,6 +65,7 @@ func (cli *Client) newConn(c *net.Conn) *Conn {
 	messagecli := make(chan *Message, cli.c.MaxMsg)
 	messagesrv := make(chan *Message, cli.c.MaxMsg)
 	quit := make(chan bool)
+
 	return &Conn{
 		c:           c,
 		s:           c,
@@ -73,6 +76,7 @@ func (cli *Client) newConn(c *net.Conn) *Conn {
 		MessageSrv:  messagesrv,
 		messagesrv:  messagesrv,
 		Quit:        quit,
+		Ready:       false,
 	}
 }
 

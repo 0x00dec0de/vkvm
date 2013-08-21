@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"time"
 )
 
 type Client struct {
@@ -181,6 +182,8 @@ func (c *Conn) clientInit() error {
 
 	c.DesktopName = string(nameBytes)
 
+	c.Ready = true
+
 	return nil
 }
 
@@ -222,7 +225,7 @@ func (c *Conn) clientServe() {
 				fmt.Printf("client<-server: %T %s\n", msg, err.Error())
 				return
 			} else {
-				fmt.Printf("client<-server: %+v\n", msg)
+				fmt.Printf("client<-server: %+v\n", parsedMsg)
 			}
 			c.MessageSrv <- &parsedMsg
 		}
@@ -231,6 +234,17 @@ func (c *Conn) clientServe() {
 		select {
 		case msg := <-c.MessageCli:
 			m := *msg
+		Loop:
+			for {
+				select {
+				default:
+					if c.Ready == true {
+						break Loop
+					}
+				case <-time.After(1 * time.Second):
+					continue
+				}
+			}
 			err := m.Write(c, *c.c)
 			if err != nil {
 				fmt.Printf("client->server: %T %s\n", msg, err.Error())

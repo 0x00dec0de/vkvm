@@ -33,10 +33,10 @@ func NewServer(cfg *ServerConfig) *Server {
 		cfg.Version = "RFB 003.008\n"
 	}
 	if cfg.Width < 1 {
-		cfg.Width = 1920
+		cfg.Width = 640
 	}
 	if cfg.Height < 1 {
-		cfg.Height = 1080
+		cfg.Height = 480
 	}
 	if cfg.AuthTypes == nil {
 		cfg.AuthTypes = []AuthType{new(AuthTypeNone)}
@@ -113,7 +113,7 @@ func (c *Conn) serverServe() {
 				fmt.Printf("server<-client: %+v: %s\n", msg, err.Error())
 				return
 			} else {
-				fmt.Printf("server<-client: %+v\n", msg)
+				fmt.Printf("server<-client: %+v\n", parsedMsg)
 			}
 			c.MessageCli <- &parsedMsg
 		}
