@@ -2,6 +2,7 @@ package vnc
 
 import (
 	"encoding/binary"
+	"log"
 	"net"
 )
 
@@ -20,13 +21,14 @@ type Conn struct {
 
 	PixelFormat *PixelFormat
 
-	ColorMap [256]Color
-
-	Quit        chan bool
-	Ready       bool
-	Encs        []Encoding
-	DesktopName string
-	Exclusive   bool
+	ColorMap     [256]Color
+	MinorVersion uint8
+	MajorVersion uint8
+	Quit         chan bool
+	Ready        bool
+	Encs         []Encoding
+	DesktopName  string
+	Exclusive    bool
 }
 
 func (srv *Server) newConn(c *net.Conn) *Conn {
@@ -82,6 +84,7 @@ func (cli *Client) newConn(c *net.Conn) *Conn {
 
 func (c *Conn) Close() {
 	if c.c != nil {
+		log.Printf("Close %+v\n", c)
 		nc := *c.c
 		nc.Close()
 		c.Quit <- true

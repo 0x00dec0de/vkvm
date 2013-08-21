@@ -159,35 +159,44 @@ func (c *Conn) serverVersionHandshake() error {
 		return fmt.Errorf("unsupported major version, less than 3: %d", maxMajor)
 	}
 
-	if maxMinor < 8 {
-		return fmt.Errorf("unsupported minor version, less than 8: %d", maxMinor)
+	if maxMinor < 3 {
+		return fmt.Errorf("unsupported minor version, less than 3: %d", maxMinor)
 	}
+	c.MinorVersion = maxMinor
+	c.MajorVersion = maxMajor
+
 	return nil
 }
 
 func (c *Conn) serverSecurityHandshake() error {
 	bw := bufio.NewWriter(*c.c)
 	serverSecurityTypes := c.srv.c.AuthTypes
-
-	var sectypes []uint8
-	sectypes = []uint8{uint8(len(serverSecurityTypes))}
-	for _, curAuth := range serverSecurityTypes {
-		sectypes = append(sectypes, curAuth.Type())
-	}
-	if err := binary.Write(*c.c, binary.BigEndian, sectypes); err != nil {
-		return err
-	}
-
 	var securityType uint8
-	if err := binary.Read(*c.c, binary.BigEndian, &securityType); err != nil {
-		return err
+
+	if c.MinorVersion >= 7 {
+		var sectypes []uint8
+		sectypes = []uint8{uint8(len(serverSecurityTypes))}
+		for _, curAuth := range serverSecurityTypes {
+			sectypes = append(sectypes, curAuth.Type())
+		}
+		if err := binary.Write(*c.c, binary.BigEndian, sectypes); err != nil {
+			return err
+		}
+
+		if err := binary.Read(*c.c, binary.BigEndian, &securityType); err != nil {
+			return err
+		}
+	} else {
+		if err := binary.Write(*c.c, binary.BigEndian, uint32(authVNC)); err != nil {
+			return err
+		}
+		securityType = authVNC
 	}
 
 	var authType AuthType
 FindAuth:
 	for _, curAuth := range serverSecurityTypes {
 		if curAuth.Type() == securityType {
-			// We use the first matching supported authentication
 			authType = curAuth
 			break FindAuth
 		}
@@ -201,25 +210,23 @@ FindAuth:
 		if err = binary.Write(*c.c, binary.BigEndian, uint32(1)); err != nil {
 			return err
 		}
+		if c.MinorVersion >= 8 {
+			reasonLen := uint32(len(err.Error()))
+			if err = binary.Write(bw, binary.BigEndian, reasonLen); err != nil {
+				return err
+			}
 
-		reasonLen := uint32(len(err.Error()))
-		if err = binary.Write(bw, binary.BigEndian, reasonLen); err != nil {
-			return err
+			reason := []byte(err.Error())
+			if err = binary.Write(bw, binary.BigEndian, &reason); err != nil {
+				return err
+			}
+			bw.Flush()
 		}
-
-		reason := []byte(err.Error())
-		if err = binary.Write(bw, binary.BigEndian, &reason); err != nil {
-			return err
-		}
-
-		bw.Flush()
 		return err
 	}
-
 	if err := binary.Write(*c.c, binary.BigEndian, uint32(0)); err != nil {
 		return err
 	}
-
 	return nil
 }
 

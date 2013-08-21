@@ -10,7 +10,7 @@ type AuthType interface {
 }
 
 const (
-	authInvalid = iota
+	authInvalid uint8 = iota
 	authNone
 	authVNC
 )

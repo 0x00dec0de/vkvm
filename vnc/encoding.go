@@ -39,6 +39,7 @@ func (*DesktopSizeEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 
 type RawEncoding struct {
 	Colors []Color
+	Data   []byte
 }
 
 func (*RawEncoding) Type() int32 {
@@ -49,17 +50,19 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 	m := &RawEncoding{}
 	bytesPerPixel := c.PixelFormat.BPP / 8
 	pixelBytes := make([]uint8, bytesPerPixel)
-	//	fmt.Printf("r bytes: %d\n", cap(pixelBytes))
+
 	var byteOrder binary.ByteOrder = binary.LittleEndian
 	if c.PixelFormat.BigEndian {
 		byteOrder = binary.BigEndian
 	}
+
 	colors := make([]Color, rect.Height*rect.Width)
 	for y := uint16(0); y < rect.Height; y++ {
 		for x := uint16(0); x < rect.Width; x++ {
-			if _, err := io.ReadFull(r, pixelBytes); err != nil {
+			if err := binary.Read(r, byteOrder, &pixelBytes); err != nil {
 				return nil, err
 			}
+
 			var rawPixel uint32
 			if c.PixelFormat.BPP == 8 {
 				rawPixel = uint32(pixelBytes[0])
@@ -68,6 +71,7 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 			} else if c.PixelFormat.BPP == 32 {
 				rawPixel = byteOrder.Uint32(pixelBytes)
 			}
+
 			color := &colors[x+y]
 			if c.PixelFormat.TrueColor {
 				color.R = uint16((rawPixel >> c.PixelFormat.RedShift) & uint32(c.PixelFormat.RedMax))
@@ -76,18 +80,14 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 			} else {
 				*color = c.ColorMap[rawPixel]
 			}
-			//			if rawPixel != 0 {
-			//			fmt.Printf("r:%+v\n", pixelBytes)
-			//	}
 		}
 	}
 	m.Colors = colors
+
 	return m, nil
 }
 
 func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
-	//	bytesPerPixel := c.PixelFormat.BPP / 8
-	//	pixelBytes := make([]uint8, bytesPerPixel)
 	var byteOrder binary.ByteOrder = binary.LittleEndian
 	if c.PixelFormat.BigEndian {
 		byteOrder = binary.BigEndian

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 )
 
@@ -45,7 +44,7 @@ func (msg *SetPixelFormatMsg) Write(c *Conn, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	bw := bufio.NewWriter(w)
+	bw := bufio.NewWriterSize(w, 1024*1024)
 
 	data := []interface{}{
 		uint8(0),
@@ -109,9 +108,9 @@ func (msg *SetEncodingsMsg) Read(c *Conn, r io.Reader) (Message, error) {
 }
 
 func (msg *SetEncodingsMsg) Write(c *Conn, w io.Writer) error {
-	bw := bufio.NewWriter(w)
+	bw := bufio.NewWriterSize(w, 1024*1024)
 
-	encNumber := uint16(cap(msg.Encs))
+	encNumber := uint16(len(msg.Encs))
 	data := []interface{}{
 		uint8(2),
 		uint8(0),
@@ -129,7 +128,6 @@ func (msg *SetEncodingsMsg) Write(c *Conn, w io.Writer) error {
 			return err
 		}
 	}
-
 	bw.Flush()
 	return nil
 }
@@ -167,7 +165,7 @@ func (msg *FramebufferUpdateRequestMsg) Read(c *Conn, r io.Reader) (Message, err
 }
 
 func (msg *FramebufferUpdateRequestMsg) Write(c *Conn, w io.Writer) error {
-	bw := bufio.NewWriter(w)
+	bw := bufio.NewWriterSize(w, 1024*1024)
 	data := []interface{}{
 		uint8(3),
 		msg.Incremental,
@@ -182,7 +180,6 @@ func (msg *FramebufferUpdateRequestMsg) Write(c *Conn, w io.Writer) error {
 			return err
 		}
 	}
-
 	bw.Flush()
 	return nil
 }
@@ -316,7 +313,7 @@ func (msg *ClientCutTextMsg) Read(c *Conn, r io.Reader) (Message, error) {
 }
 
 func (msg *ClientCutTextMsg) Write(c *Conn, w io.Writer) error {
-	bw := bufio.NewWriter(w)
+	bw := bufio.NewWriterSize(w, 1024*1024)
 
 	textBytes := []byte(msg.Text)
 	textLength := uint32(len(textBytes))
@@ -400,13 +397,13 @@ func (msg *FramebufferUpdateMsg) Read(c *Conn, r io.Reader) (Message, error) {
 			return nil, err
 		}
 	}
-	fmt.Printf("r rects: %d\n", numRects)
+	//	fmt.Printf("r rects: %d\n", numRects)
 	m.Rectangles = append(m.Rectangles, rects...)
 	return m, nil
 }
 
 func (msg *FramebufferUpdateMsg) Write(c *Conn, w io.Writer) error {
-	bw := bufio.NewWriter(w)
+	bw := bufio.NewWriterSize(w, 1024*1024)
 	numRects := uint16(len(msg.Rectangles))
 
 	data := []interface{}{
@@ -420,7 +417,6 @@ func (msg *FramebufferUpdateMsg) Write(c *Conn, w io.Writer) error {
 			return err
 		}
 	}
-	fmt.Printf("w rects: %d\n", numRects)
 	for i := uint16(0); i < numRects; i++ {
 		rect := msg.Rectangles[i]
 		data := []interface{}{
@@ -430,7 +426,6 @@ func (msg *FramebufferUpdateMsg) Write(c *Conn, w io.Writer) error {
 			rect.Height,
 			rect.Enc.Type(),
 		}
-
 		for _, val := range data {
 			if err := binary.Write(bw, binary.BigEndian, val); err != nil {
 				return err
@@ -440,6 +435,7 @@ func (msg *FramebufferUpdateMsg) Write(c *Conn, w io.Writer) error {
 		if err = rect.Enc.Write(c, &rect, bw); err != nil {
 			return err
 		}
+		bw.Flush()
 	}
 	bw.Flush()
 	return nil
@@ -492,7 +488,7 @@ func (msg *SetColorMapEntriesMsg) Read(c *Conn, r io.Reader) (Message, error) {
 }
 
 func (msg *SetColorMapEntriesMsg) Write(c *Conn, w io.Writer) error {
-	bw := bufio.NewWriter(w)
+	bw := bufio.NewWriterSize(w, 1024*1024)
 	numColors := uint16(len(msg.Colors))
 
 	data := []interface{}{
@@ -550,7 +546,7 @@ func (msg *ServerCutTextMsg) Type() uint8 {
 }
 
 func (msg *ServerCutTextMsg) Write(c *Conn, w io.Writer) error {
-	bw := bufio.NewWriter(w)
+	bw := bufio.NewWriterSize(w, 1024*1024)
 
 	textBytes := []byte(msg.Text)
 	textLength := uint32(len(textBytes))

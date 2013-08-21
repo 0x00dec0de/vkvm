@@ -18,7 +18,6 @@ func (*ServerAuthTypeVNC) Type() uint8 {
 func (*ServerAuthTypeVNC) Handler(srv *vnc.Conn, rw io.ReadWriter) (err error) {
 	challenge := make([]uint8, 16)
 	response := make([]uint8, 16)
-
 	_, err = rand.Read(challenge)
 	if err != nil {
 		return err
@@ -26,7 +25,6 @@ func (*ServerAuthTypeVNC) Handler(srv *vnc.Conn, rw io.ReadWriter) (err error) {
 	if err := binary.Write(rw, binary.BigEndian, challenge); err != nil {
 		return err
 	}
-
 	if err := binary.Read(rw, binary.BigEndian, &response); err != nil {
 		return err
 	}

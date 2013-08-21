@@ -23,7 +23,7 @@ var p Proxy
 func main() {
 	p.Targets = make(map[*vnc.Conn]*rConn)
 
-	l, err := net.Listen("tcp", "127.0.0.1:6900")
+	l, err := net.Listen("tcp", "127.0.0.2:5900")
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
