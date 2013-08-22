@@ -197,11 +197,9 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 
 		for y := uint16(0); y < rect.Height; y++ {
 			for x := uint16(0); x < rect.Width; x++ {
-				index := x + y*rect.Height
-
+				index := x + y*rect.Width
 				rawPixel := pixelBufferU32[index]
 				color := &colors[index]
-
 				color.R = uint16(rawPixel>>c.PixelFormat.RedShift) & c.PixelFormat.RedMax
 				color.G = uint16(rawPixel>>c.PixelFormat.GreenShift) & c.PixelFormat.GreenMax
 				color.B = uint16(rawPixel>>c.PixelFormat.BlueShift) & c.PixelFormat.BlueMax
@@ -227,7 +225,7 @@ func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 
 	for y := uint16(0); y < rect.Height; y++ {
 		for x := uint16(0); x < rect.Width; x++ {
-			index := x + y
+			index := x + y*rect.Width
 			color := &colors[index]
 			switch {
 
