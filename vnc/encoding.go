@@ -2,7 +2,6 @@ package vnc
 
 import (
 	"encoding/binary"
-	//	"fmt"
 	"io"
 )
 
@@ -37,15 +36,19 @@ func (*DesktopSizeEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 	return nil
 }
 
+var (
+	pixelBufferU32 []uint32
+)
+
 type RawEncoding struct {
 	Colors []Color
-	Data   []byte
 }
 
 func (*RawEncoding) Type() int32 {
 	return encodingRaw
 }
 
+/*
 func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error) {
 	m := &RawEncoding{}
 	bytesPerPixel := c.PixelFormat.BPP / 8
@@ -71,8 +74,8 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 			} else if c.PixelFormat.BPP == 32 {
 				rawPixel = byteOrder.Uint32(pixelBytes)
 			}
-
-			color := &colors[x+y]
+			index := x + y
+			color := &colors[index]
 			if c.PixelFormat.TrueColor {
 				color.R = uint16((rawPixel >> c.PixelFormat.RedShift) & uint32(c.PixelFormat.RedMax))
 				color.G = uint16((rawPixel >> c.PixelFormat.GreenShift) & uint32(c.PixelFormat.GreenMax))
@@ -86,7 +89,7 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 
 	return m, nil
 }
-
+*/
 /*
 func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 	var byteOrder binary.ByteOrder = binary.LittleEndian
@@ -157,7 +160,58 @@ func checkBuf(tpe, size int) {
 }
 */
 
-var pixbuf []uint32
+func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error) {
+	m := &RawEncoding{}
+	bufferSize := int(rect.Width * rect.Height)
+
+	var byteOrder binary.ByteOrder = binary.LittleEndian
+	if c.PixelFormat.BigEndian {
+		byteOrder = binary.BigEndian
+	}
+
+	colors := make([]Color, int(rect.Height*rect.Width))
+
+	switch {
+
+	case c.PixelFormat.TrueColor == false:
+
+		// Todo
+
+	case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 8:
+
+		// Todo
+
+	case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 16:
+
+		// Todo
+
+	case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 32:
+
+		if len(pixelBufferU32) != bufferSize {
+			pixelBufferU32 = make([]uint32, bufferSize)
+		}
+
+		if err := binary.Read(r, byteOrder, &pixelBufferU32); err != nil {
+			return nil, err
+		}
+
+		for y := uint16(0); y < rect.Height; y++ {
+			for x := uint16(0); x < rect.Width; x++ {
+				index := x + y*rect.Height
+
+				rawPixel := pixelBufferU32[index]
+				color := &colors[index]
+
+				color.R = uint16(rawPixel>>c.PixelFormat.RedShift) & c.PixelFormat.RedMax
+				color.G = uint16(rawPixel>>c.PixelFormat.GreenShift) & c.PixelFormat.GreenMax
+				color.B = uint16(rawPixel>>c.PixelFormat.BlueShift) & c.PixelFormat.BlueMax
+			}
+		}
+	}
+
+	m.Colors = colors
+	return m, nil
+}
 
 func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 	var byteOrder binary.ByteOrder = binary.LittleEndian
@@ -166,37 +220,35 @@ func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 	}
 	colors := enc.Colors
 
-	bufsize := int(rect.Width * rect.Height)
-	if len(pixbuf) != bufsize {
-		pixbuf = make([]uint32, bufsize)
+	bufferSize := int(rect.Width * rect.Height)
+	if len(pixelBufferU32) != bufferSize {
+		pixelBufferU32 = make([]uint32, bufferSize)
 	}
-	//	checkBuf(int(c.PixelFormat.BPP), int(rect.Width*rect.Height))
 
 	for y := uint16(0); y < rect.Height; y++ {
 		for x := uint16(0); x < rect.Width; x++ {
-			index := x + y*rect.Height
+			index := x + y
 			color := &colors[index]
+			switch {
 
-			if c.PixelFormat.TrueColor {
-				pixbuf[index] = uint32(color.R)<<c.PixelFormat.RedShift | uint32(color.G)<<c.PixelFormat.GreenShift | uint32(color.B)<<c.PixelFormat.BlueShift
-			} else {
+			case c.PixelFormat.TrueColor == false:
 
+				// Todo
+
+			case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 8:
+
+				// Todo
+
+			case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 16:
+
+				// Todo
+
+			case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 32:
+				pixelBufferU32[index] = uint32(color.R)<<c.PixelFormat.RedShift | uint32(color.G)<<c.PixelFormat.GreenShift | uint32(color.B)<<c.PixelFormat.BlueShift
 			}
-			/*
-				switch c.PixelFormat.BPP {
-				case 32:
-					pixbuf.([]uint32)[index] = rawPixel
-				case 16:
-					pixbuf.([]uint16)[index] = uint16(rawPixel)
-				case 8:
-					pixbuf.([]uint8)[index] = uint8(rawPixel)
-				default:
-					return fmt.Errorf("TODO: BPP of %d", c.PixelFormat.BPP)
-				}
-			*/
 		}
 	}
-	if err := binary.Write(w, byteOrder, pixbuf); err != nil {
+	if err := binary.Write(w, byteOrder, pixelBufferU32); err != nil {
 		return err
 	}
 	return nil

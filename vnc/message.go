@@ -417,6 +417,7 @@ func (msg *FramebufferUpdateMsg) Write(c *Conn, w io.Writer) error {
 			return err
 		}
 	}
+	bw.Flush()
 	for i := uint16(0); i < numRects; i++ {
 		rect := msg.Rectangles[i]
 		data := []interface{}{
@@ -437,7 +438,7 @@ func (msg *FramebufferUpdateMsg) Write(c *Conn, w io.Writer) error {
 		}
 		bw.Flush()
 	}
-	bw.Flush()
+	//	bw.Flush()
 	return nil
 }
 
