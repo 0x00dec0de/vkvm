@@ -2,6 +2,7 @@ package vnc
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 )
 
@@ -61,12 +62,14 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 	}
 
 	switch {
+	default:
+		fmt.Printf("r // TODO Default case\n")
 	case c.PixelFormat.TrueColor == false:
-		// Todo
+		fmt.Printf("r // Todo c.PixelFormat.TrueColor == false\n")
 	case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 8:
-		// Todo
+		fmt.Printf("r // Todo c.PixelFormat.TrueColor && c.PixelFormat.BPP == 8\n")
 	case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 16:
-		// Todo
+		fmt.Printf("r // Todo c.PixelFormat.TrueColor && c.PixelFormat.BPP == 16\n")
 	case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 32:
 		if len(pixelBufferRU32) != bufferSize {
 			pixelBufferRU32 = make([]uint32, bufferSize)
@@ -100,12 +103,14 @@ func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 	}
 
 	switch {
+	default:
+		fmt.Printf("w // TODO Default case\n")
 	case c.PixelFormat.TrueColor == false:
-		// Todo
+		fmt.Printf("w // Todo c.PixelFormat.TrueColor == false\n")
 	case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 8:
-		// Todo
+		fmt.Printf("w // Todo c.PixelFormat.TrueColor && c.PixelFormat.BPP == 8\n")
 	case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 16:
-		// Todo
+		fmt.Printf("w // Todo c.PixelFormat.TrueColor && c.PixelFormat.BPP == 16\n")
 	case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 32:
 		if len(pixelBufferWU32) != bufferSize {
 			pixelBufferWU32 = make([]uint32, bufferSize)
@@ -115,12 +120,14 @@ func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 	for index, _ := range pixelBufferWU32 {
 		color := &colors[index]
 		switch {
+		default:
+			fmt.Printf("w // TODO Default case\n")
 		case c.PixelFormat.TrueColor == false:
-			// Todo
+			fmt.Printf("w // Todo c.PixelFormat.TrueColor == false\n")
 		case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 8:
-			// Todo
+			fmt.Printf("w // Todo c.PixelFormat.TrueColor && c.PixelFormat.BPP == 8\n")
 		case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 16:
-			// Todo
+			fmt.Printf("w // Todo c.PixelFormat.TrueColor && c.PixelFormat.BPP == 16\n")
 		case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 32:
 			pixelBufferWU32[index] = uint32(color.R)<<c.PixelFormat.RedShift | uint32(color.G)<<c.PixelFormat.GreenShift | uint32(color.B)<<c.PixelFormat.BlueShift
 		}
