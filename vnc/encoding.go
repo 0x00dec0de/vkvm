@@ -2,7 +2,7 @@ package vnc
 
 import (
 	"encoding/binary"
-	"fmt"
+	//	"fmt"
 	"io"
 )
 
@@ -123,7 +123,7 @@ func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 	return nil
 }
 */
-
+/*
 var (
 	pixbuf interface{}
 )
@@ -155,6 +155,9 @@ func checkBuf(tpe, size int) {
 		}
 	}
 }
+*/
+
+var pixbuf []uint32
 
 func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 	var byteOrder binary.ByteOrder = binary.LittleEndian
@@ -163,29 +166,34 @@ func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 	}
 	colors := enc.Colors
 
-	checkBuf(int(c.PixelFormat.BPP), int(rect.Width*rect.Height))
+	bufsize := int(rect.Width * rect.Height)
+	if len(pixbuf) != bufsize {
+		pixbuf = make([]uint32, bufsize)
+	}
+	//	checkBuf(int(c.PixelFormat.BPP), int(rect.Width*rect.Height))
 
 	for y := uint16(0); y < rect.Height; y++ {
 		for x := uint16(0); x < rect.Width; x++ {
-			var rawPixel uint32
 			index := x + y*rect.Height
 			color := &colors[index]
+
 			if c.PixelFormat.TrueColor {
-				rawPixel = uint32(color.R<<c.PixelFormat.RedShift | color.G<<c.PixelFormat.GreenShift | color.B<<c.PixelFormat.BlueShift)
+				pixbuf[index] = uint32(color.R)<<c.PixelFormat.RedShift | uint32(color.G)<<c.PixelFormat.GreenShift | uint32(color.B)<<c.PixelFormat.BlueShift
 			} else {
 
 			}
-
-			switch c.PixelFormat.BPP {
-			case 32:
-				pixbuf.([]uint32)[index] = rawPixel
-			case 16:
-				pixbuf.([]uint16)[index] = uint16(rawPixel)
-			case 8:
-				pixbuf.([]uint8)[index] = uint8(rawPixel)
-			default:
-				return fmt.Errorf("TODO: BPP of %d", c.PixelFormat.BPP)
-			}
+			/*
+				switch c.PixelFormat.BPP {
+				case 32:
+					pixbuf.([]uint32)[index] = rawPixel
+				case 16:
+					pixbuf.([]uint16)[index] = uint16(rawPixel)
+				case 8:
+					pixbuf.([]uint8)[index] = uint8(rawPixel)
+				default:
+					return fmt.Errorf("TODO: BPP of %d", c.PixelFormat.BPP)
+				}
+			*/
 		}
 	}
 	if err := binary.Write(w, byteOrder, pixbuf); err != nil {
