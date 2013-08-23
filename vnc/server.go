@@ -111,10 +111,10 @@ func (c *Conn) serverServe() {
 			}
 			parsedMsg, err := msg.Read(c, *c.c)
 			if err != nil {
-				fmt.Printf("server<-client: %T: %s\n", msg, err.Error())
+				fmt.Printf("server<-client: er: %T %s\n", msg, err.Error())
 				return
 			} else {
-				fmt.Printf("server<-client: %T %+v\n", parsedMsg)
+				fmt.Printf("server<-client: ok: %T %+v\n", msg, parsedMsg)
 			}
 			c.MessageCli <- &parsedMsg
 		}
@@ -125,10 +125,10 @@ func (c *Conn) serverServe() {
 			m := *msg
 			err := m.Write(c, *c.c)
 			if err != nil {
-				fmt.Printf("server->client: %T: %s\n", msg, err.Error())
+				fmt.Printf("server->client: er: %T %s\n", msg, err.Error())
 				return
 			} else {
-				fmt.Printf("server->client: %T %+v\n", m)
+				fmt.Printf("server->client: ok: %T %+v\n", m, m)
 			}
 		}
 	}

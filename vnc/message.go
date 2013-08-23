@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	//	"fmt"
 	"io"
 )
 
@@ -98,10 +99,10 @@ func (msg *SetEncodingsMsg) Read(c *Conn, r io.Reader) (Message, error) {
 	rawEnc := new(RawEncoding)
 	encMap[rawEnc.Type()] = rawEnc
 
-	DesktopSizeEnc := new(DesktopSizeEncoding)
-	encMap[DesktopSizeEnc.Type()] = DesktopSizeEnc
+	//DesktopSizeEnc := new(DesktopSizeEncoding)
+	//encMap[DesktopSizeEnc.Type()] = DesktopSizeEnc
 
-	m.Encs = append(m.Encs, rawEnc, DesktopSizeEnc)
+	m.Encs = append(m.Encs, rawEnc /*, DesktopSizeEnc*/)
 	c.Encs = m.Encs
 
 	return m, nil
@@ -367,10 +368,31 @@ func (msg *FramebufferUpdateMsg) Read(c *Conn, r io.Reader) (Message, error) {
 	// We must always support the raw encoding
 	rawEnc := new(RawEncoding)
 	encMap[rawEnc.Type()] = rawEnc
-	DesktopSizeEnc := new(DesktopSizeEncoding)
-	encMap[DesktopSizeEnc.Type()] = DesktopSizeEnc
-
-	rects := make([]Rectangle, numRects)
+	//	DesktopSizeEnc := new(DesktopSizeEncoding)
+	//	encMap[DesktopSizeEnc.Type()] = DesktopSizeEnc
+	var rects []Rectangle
+	/*
+		if numRects == 0 {
+			var encodingType int32
+			rects = make([]Rectangle, 1)
+			rect := &rects[0]
+			data := []interface{}{
+				&rect.X,
+				&rect.Y,
+				&rect.Width,
+				&rect.Height,
+				&encodingType,
+			}
+			for _, val := range data {
+				if err := binary.Read(r, binary.BigEndian, val); err != nil {
+					return nil, err
+				}
+			}
+			fmt.Printf("Null rect: %+v\n", rect)
+			goto Exit
+		}
+	*/
+	rects = make([]Rectangle, numRects)
 	for i := uint16(0); i < numRects; i++ {
 		var encodingType int32
 		rect := &rects[i]
@@ -397,8 +419,8 @@ func (msg *FramebufferUpdateMsg) Read(c *Conn, r io.Reader) (Message, error) {
 			return nil, err
 		}
 	}
-	//	fmt.Printf("r rects: %d\n", numRects)
-	m.Rectangles = append(m.Rectangles, rects...)
+	//Exit:
+	m.Rectangles = rects
 	return m, nil
 }
 
@@ -417,7 +439,6 @@ func (msg *FramebufferUpdateMsg) Write(c *Conn, w io.Writer) error {
 			return err
 		}
 	}
-
 	for i := uint16(0); i < numRects; i++ {
 		rect := msg.Rectangles[i]
 		data := []interface{}{
@@ -432,10 +453,12 @@ func (msg *FramebufferUpdateMsg) Write(c *Conn, w io.Writer) error {
 				return err
 			}
 		}
+
 		var err error
 		if err = rect.Enc.Write(c, &rect, bw); err != nil {
 			return err
 		}
+
 	}
 	bw.Flush()
 	return nil
