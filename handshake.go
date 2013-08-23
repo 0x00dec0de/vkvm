@@ -44,7 +44,7 @@ func (*ServerAuthTypeVNC) Handler(srv *vnc.Conn, rw io.ReadWriter) (err error) {
 
 	p.Lock()
 	srv.DesktopName = conn.DesktopName
-	rConn := &rConn{c: conn, password: []byte("njkcnjd")}
+	rConn := &rConn{c: conn, password: []byte("7VQT1ft3kn")}
 	p.Targets[srv] = rConn
 	p.Unlock()
 
@@ -65,7 +65,7 @@ func (*ClientAuthTypeVNC) Handler(c *vnc.Conn, rw io.ReadWriter) (err error) {
 	}
 
 	//external auth
-	pwd := []byte("njkcnjd")
+	pwd := []byte("7VQT1ft3kn")
 	if len(pwd) > 8 {
 		pwd = pwd[:8]
 	}
