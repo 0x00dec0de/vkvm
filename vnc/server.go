@@ -33,10 +33,10 @@ func NewServer(cfg *ServerConfig) *Server {
 		cfg.Version = "RFB 003.008\n"
 	}
 	if cfg.Width < 1 {
-		cfg.Width = 640
+		cfg.Width = 720
 	}
 	if cfg.Height < 1 {
-		cfg.Height = 480
+		cfg.Height = 400
 	}
 	if cfg.AuthTypes == nil {
 		cfg.AuthTypes = []AuthType{new(AuthTypeNone)}
@@ -101,19 +101,20 @@ func (c *Conn) serverServe() {
 		for {
 			messageType, err := c.readByte()
 			if err != nil {
-				break
+				fmt.Printf("server<-client: Error reading message type\n")
+				return
 			}
 			msg, ok := typeMap[messageType]
 			if !ok {
-				// Unsupported message type! Bad!
+				fmt.Printf("Unsupported message type: %d\n", messageType)
 				return
 			}
 			parsedMsg, err := msg.Read(c, *c.c)
 			if err != nil {
-				fmt.Printf("server<-client: %+v: %s\n", msg, err.Error())
+				fmt.Printf("server<-client: %T: %s\n", msg, err.Error())
 				return
 			} else {
-				fmt.Printf("server<-client: %+v\n", parsedMsg)
+				fmt.Printf("server<-client: %T %+v\n", parsedMsg)
 			}
 			c.MessageCli <- &parsedMsg
 		}
@@ -124,10 +125,10 @@ func (c *Conn) serverServe() {
 			m := *msg
 			err := m.Write(c, *c.c)
 			if err != nil {
-				fmt.Printf("server->client: %+v: %s\n", msg, err.Error())
+				fmt.Printf("server->client: %T: %s\n", msg, err.Error())
 				return
 			} else {
-				fmt.Printf("server->client: %+v\n", m)
+				fmt.Printf("server->client: %T %+v\n", m)
 			}
 		}
 	}
@@ -207,22 +208,23 @@ FindAuth:
 	}
 
 	if err := authType.Handler(c, *c.c); err != nil {
+		e := err
 		if err = binary.Write(*c.c, binary.BigEndian, uint32(1)); err != nil {
 			return err
 		}
 		if c.MinorVersion >= 8 {
-			reasonLen := uint32(len(err.Error()))
+			reasonLen := uint32(len(e.Error()))
 			if err = binary.Write(bw, binary.BigEndian, reasonLen); err != nil {
 				return err
 			}
 
-			reason := []byte(err.Error())
+			reason := []byte(e.Error())
 			if err = binary.Write(bw, binary.BigEndian, &reason); err != nil {
 				return err
 			}
 			bw.Flush()
 		}
-		return err
+		return e
 	}
 	if err := binary.Write(*c.c, binary.BigEndian, uint32(0)); err != nil {
 		return err

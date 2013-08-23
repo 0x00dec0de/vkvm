@@ -213,19 +213,20 @@ func (c *Conn) clientServe() {
 		for {
 			messageType, err := c.readByte()
 			if err != nil {
-				break
+				fmt.Printf("client<-server: Error reading message type\n")
+				return
 			}
 			msg, ok := typeMap[messageType]
 			if !ok {
-				// Unsupported message type! Bad!
+				fmt.Printf("Unsupported message type: %d\n", messageType)
 				return
 			}
 			parsedMsg, err := msg.Read(c, *c.c)
 			if err != nil {
-				fmt.Printf("client<-server: %T %s\n", msg, err.Error())
+				fmt.Printf("client<-server: err : %T - %s\n", msg, err.Error())
 				return
 			} else {
-				fmt.Printf("client<-server: %+v\n", parsedMsg)
+				fmt.Printf("client<-server: %T - %+v\n", msg, parsedMsg)
 			}
 			c.MessageSrv <- &parsedMsg
 		}
