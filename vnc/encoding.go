@@ -14,7 +14,7 @@ type Encoding interface {
 }
 
 const (
-	encodingRaw = iota
+	encodingRaw int32 = iota
 	encodingCopyRect
 	encodingDesktopSize = -223
 )
@@ -33,7 +33,6 @@ func (*DesktopSizeEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encodin
 }
 
 func (*DesktopSizeEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
-
 	return nil
 }
 
@@ -81,7 +80,6 @@ func (*RawEncoding) Read(c *Conn, rect *Rectangle, r io.Reader) (Encoding, error
 
 		for index, rawPixel := range pixelBufferRU32 {
 			color := &colors[index]
-
 			color.R = uint16(rawPixel>>c.PixelFormat.RedShift) & c.PixelFormat.RedMax
 			color.G = uint16(rawPixel>>c.PixelFormat.GreenShift) & c.PixelFormat.GreenMax
 			color.B = uint16(rawPixel>>c.PixelFormat.BlueShift) & c.PixelFormat.BlueMax
@@ -129,7 +127,7 @@ func (enc *RawEncoding) Write(c *Conn, rect *Rectangle, w io.Writer) error {
 		case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 16:
 			fmt.Printf("w // Todo c.PixelFormat.TrueColor && c.PixelFormat.BPP == 16\n")
 		case c.PixelFormat.TrueColor && c.PixelFormat.BPP == 32:
-			pixelBufferWU32[index] = uint32(color.R)<<c.PixelFormat.RedShift | uint32(color.G)<<c.PixelFormat.GreenShift | uint32(color.B)<<c.PixelFormat.BlueShift
+			pixelBufferWU32[index] = (uint32(color.R)<<c.PixelFormat.RedShift | uint32(color.G)<<c.PixelFormat.GreenShift | uint32(color.B)<<c.PixelFormat.BlueShift)
 		}
 	}
 

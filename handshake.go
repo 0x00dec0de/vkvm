@@ -33,7 +33,7 @@ func (*ServerAuthTypeVNC) Handler(srv *vnc.Conn, rw io.ReadWriter) (err error) {
 
 	cli := vnc.NewClient(&vnc.ClientConfig{AuthTypes: []vnc.AuthType{new(ClientAuthTypeVNC)}})
 
-	n, err := net.Dial("tcp", "127.0.0.1:5900")
+	n, err := net.Dial("tcp", "62.76.183.21:5907")
 	if err != nil {
 		return err
 	}
