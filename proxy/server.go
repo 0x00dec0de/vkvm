@@ -214,17 +214,17 @@ func (c *Conn) serverInit() error {
 	if err = binary.Write(c.bw, binary.BigEndian, cc.Width); err != nil {
 		return err
 	}
-
+	log.Printf("Avail: %d Buffer: %d\n", c.bw.Available(), c.bw.Buffered())
 	if err = binary.Write(c.bw, binary.BigEndian, cc.Height); err != nil {
 		return err
 	}
-
+	log.Printf("Avail: %d Buffer: %d\n", c.bw.Available(), c.bw.Buffered())
 	if err = binary.Write(c.bw, binary.BigEndian, cc.PixelFormat); err != nil {
 		return err
 	}
-
+	log.Printf("Avail: %d Buffer: %d\n", c.bw.Available(), c.bw.Buffered())
 	nameBytes := []uint8(cc.Name)
-	nameLen := uint8(len(nameBytes))
+	nameLen := uint32(len(nameBytes))
 	log.Printf("%d\n", nameLen)
 	if err = binary.Write(c.bw, binary.BigEndian, nameLen); err != nil {
 		return err
@@ -233,7 +233,7 @@ func (c *Conn) serverInit() error {
 	if err = binary.Write(c.bw, binary.BigEndian, nameBytes); err != nil {
 		return err
 	}
-
+	log.Printf("Avail: %d Buffer: %d\n", c.bw.Available(), c.bw.Buffered())
 	c.bw.Flush()
 	return nil
 }

@@ -2,7 +2,7 @@ package main
 
 import (
 	"bufio"
-	"log"
+	"io"
 	"net"
 )
 
@@ -37,17 +37,24 @@ type Conn struct {
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
-	log.Printf("READ\n")
 	if b, err = c.br.Peek(1); err != nil {
 		return
 	}
-	log.Printf("%+v\n", b)
+	switch b[0] {
+	case 0:
+		if len(b) < 20 {
+			b = make([]byte, 20)
+		}
+		n, err = io.ReadFull(c.br, b)
+		return
+	}
 	return
 }
 
-func (c *Conn) Write(b []byte) (int, error) {
-	log.Printf("WRITE\n")
-	return 0, nil
+func (c *Conn) Write(b []byte) (n int, err error) {
+	n, err = c.bw.Write(b)
+	c.bw.Flush()
+	return
 }
 
 func (c *Conn) Close() error {
