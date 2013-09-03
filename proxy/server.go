@@ -178,7 +178,7 @@ func (c *Conn) serverAuth() (err error) {
 
 	cli := NewClient()
 
-	n, err := net.Dial("tcp", "127.0.0.1:5901")
+	n, err := net.Dial("tcp", "127.0.0.1:5900")
 	if err != nil {
 		return err
 	}

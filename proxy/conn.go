@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"encoding/binary"
 	"io"
+	"log"
 	"net"
 )
 
@@ -38,15 +40,92 @@ type Conn struct {
 
 func (c *Conn) Read(b []byte) (n int, err error) {
 	if b, err = c.br.Peek(1); err != nil {
-		return
+		return 1, err
 	}
-	switch b[0] {
-	case 0:
-		if len(b) < 20 {
-			b = make([]byte, 20)
+	if c.sc != nil {
+		switch b[0] {
+		case 0:
+			buf := make([]byte, 20)
+			n, err = io.ReadFull(c.br, buf)
+			b = buf
+			return
+		case 2:
+			var nEncs uint16
+			if b, err = c.br.Peek(4); err != nil {
+				return
+			}
+			tt := binary.BigEndian.Uint16(b[2:3])
+			log.Printf("%+v\n", tt)
+			nEncs = tt
+			buf := make([]byte, 4+4*nEncs)
+			n, err = io.ReadFull(c.br, buf)
+			b = buf
+			return
+		case 3:
+			buf := make([]byte, 10)
+			n, err = io.ReadFull(c.br, buf)
+			b = buf
+			return
+		case 4:
+			buf := make([]byte, 8)
+			n, err = io.ReadFull(c.br, buf)
+			b = buf
+			return
+		case 5:
+			buf := make([]byte, 6)
+			n, err = io.ReadFull(c.br, buf)
+			b = buf
+			return
+		case 6:
+			if b, err = c.br.Peek(8); err != nil {
+				return
+			}
+			var Len uint32
+			Len = binary.BigEndian.Uint32(b[4:8])
+			buf := make([]byte, 8+Len)
+			n, err = io.ReadFull(c.br, buf)
+			b = buf
+			return
 		}
-		n, err = io.ReadFull(c.br, b)
-		return
+	}
+	if c.cc != nil {
+		switch b[0] {
+		case 0:
+			var nRecs uint16
+			if b, err = c.br.Peek(4); err != nil {
+				return
+			}
+			nRecs = binary.BigEndian.Uint16(b[2:3])
+			buf := make([]byte, 4+nRecs*12)
+			n, err = io.ReadFull(c.br, buf)
+			b = buf
+			return
+		case 1:
+			var nColors uint16
+			if b, err = c.br.Peek(6); err != nil {
+				return
+			}
+			nColors = binary.BigEndian.Uint16(b[4:5])
+			buf := make([]byte, 6+nColors*6)
+			n, err = io.ReadFull(c.br, buf)
+			b = buf
+			return
+		case 2:
+			buf := make([]byte, 1)
+			n, err = io.ReadFull(c.br, buf)
+			b = buf
+			return
+		case 3:
+			var Len uint32
+			if b, err = c.br.Peek(6); err != nil {
+				return
+			}
+			Len = binary.BigEndian.Uint32(b[4:8])
+			buf := make([]byte, 8+Len)
+			n, err = io.ReadFull(c.br, buf)
+			b = buf
+			return
+		}
 	}
 	return
 }
