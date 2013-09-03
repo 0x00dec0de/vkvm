@@ -263,7 +263,7 @@ func (c *Conn) serverInit() error {
 	}
 
 	nameBytes := []uint8(c.DesktopName)
-	nameLen := uint8(cap(nameBytes))
+	nameLen := uint32(cap(nameBytes))
 	if err = binary.Write(bw, binary.BigEndian, nameLen); err != nil {
 		return err
 	}
