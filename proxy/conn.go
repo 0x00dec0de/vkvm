@@ -5,13 +5,17 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
+	"sync"
 )
 
 type Conn struct {
-	sc net.Conn
-	cc net.Conn
+	smu sync.Mutex
+	cmu sync.Mutex
+	sc  net.Conn
+	cc  net.Conn
 
 	Major uint8
 	Minor uint8
@@ -34,141 +38,154 @@ type Conn struct {
 	ccHostPort string
 	Password   string
 
-	MsgChan  chan byte
+	MsgChan  chan []byte
 	MsgDone  chan bool
 	InitDone chan bool
 }
 
-func (c *Conn) Read(b []byte) (n int, err error) {
-	var m []byte
-	if m, err = c.br.Peek(1); err != nil {
-		return
-	}
+func (c *Conn) Read() ([]byte, error) {
+	var err error
+	bbuf := new(bytes.Buffer)
+	defer bbuf.Reset()
+	buf := new(bytes.Buffer)
+	defer buf.Reset()
+	var m byte
 	if c.sc != nil {
-		switch m[0] {
+		//		log.Printf("c.smu.Lock()\n")
+		//		c.smu.Lock()
+		//		log.Printf("c.smu.Unlock()\n")
+		//		defer c.smu.Unlock()
+		if err = binary.Read(c.sc, binary.BigEndian, &m); err != nil {
+			log.Printf(err.Error())
+			return nil, err
+		}
+		bbuf.Write([]byte{m})
+		log.Printf("SC: %+v\n", m)
+		switch m {
 		case 0:
-			buf := make([]byte, 20)
-			n, err = io.ReadFull(c.br, buf)
-			n = copy(b, buf)
-			return
+			_, err = io.CopyN(buf, c.sc, 19)
+			bbuf.Write(buf.Bytes())
 		case 2:
-			var mn []byte
-			var nEncs uint16
-			if mn, err = c.br.Peek(4); err != nil {
-				return
+			mn := make([]byte, 3)
+			if _, err = io.ReadFull(c.sc, mn); err != nil {
+				return nil, err
 			}
-			nEncs = binary.BigEndian.Uint16(mn[2:])
-			buf := make([]byte, 4+4*nEncs)
-			n, err = io.ReadFull(c.br, buf)
-			n = copy(b, buf)
-			bbuf := new(bytes.Buffer)
-			binary.Write(bbuf, binary.BigEndian, []uint8{uint8(2), uint8(0)})
+			_, err = io.CopyN(ioutil.Discard, c.sc, int64(4*binary.BigEndian.Uint16(mn[1:])))
+			binary.Write(bbuf, binary.BigEndian, uint8(0))
 			binary.Write(bbuf, binary.BigEndian, uint16(1))
 			binary.Write(bbuf, binary.BigEndian, int32(0))
-			n = copy(b, bbuf.Bytes())
-			return
 		case 3:
-			buf := make([]byte, 10)
-			n, err = io.ReadFull(c.br, buf)
-			n = copy(b, buf)
-			return
+			_, err = io.CopyN(buf, c.sc, 9)
+			bbuf.Write(buf.Bytes())
 		case 4:
-			buf := make([]byte, 8)
-			n, err = io.ReadFull(c.br, buf)
-			n = copy(b, buf)
-			return
+			_, err = io.CopyN(buf, c.sc, 7)
+			bbuf.Write(buf.Bytes())
 		case 5:
-			buf := make([]byte, 6)
-			n, err = io.ReadFull(c.br, buf)
-			n = copy(b, buf)
-			return
+			_, err = io.CopyN(buf, c.sc, 5)
+			bbuf.Write(buf.Bytes())
 		case 6:
-			var mn []byte
-			if mn, err = c.br.Peek(8); err != nil {
-				return
+			mn := make([]byte, 7)
+			if _, err = io.ReadFull(c.sc, mn); err != nil {
+				return nil, err
 			}
-			var Len uint32
-			Len = binary.BigEndian.Uint32(mn[4:8])
-			buf := make([]byte, 8+Len)
-			n, err = io.ReadFull(c.br, buf)
-			copy(b, buf)
-			return
+			bbuf.Write(mn)
+			_, err = io.CopyN(buf, c.sc, int64(binary.BigEndian.Uint32(mn[3:])))
+			bbuf.Write(buf.Bytes())
 		}
 	}
 	if c.cc != nil {
-		switch m[0] {
+		//		log.Printf("c.cmu.Lock()\n")
+		//		c.cmu.Lock()
+		//		log.Printf("c.cmu.Unlock()\n")
+		//		defer c.cmu.Unlock()
+		if err = binary.Read(c.cc, binary.BigEndian, &m); err != nil {
+			return nil, err
+		}
+		log.Printf("CC: %+v\n", m)
+		bbuf.Write([]byte{m})
+		switch m {
 		case 0:
+			log.Printf("cc: framebufferupdate\n")
 			var Hdr struct {
-				Type   uint8
 				Pad    uint8
 				Nrects uint16
 			}
 			var Rect struct {
-				X   uint16
-				Y   uint16
-				W   uint16
-				H   uint16
-				Enc int32
+				X    uint16
+				Y    uint16
+				W    uint16
+				H    uint16
+				Type int32
 			}
-			buf := new(bytes.Buffer)
 			binary.Read(c.cc, binary.BigEndian, &Hdr)
-			binary.Write(buf, binary.BigEndian, Hdr)
-			//var byteOrder binary.ByteOrder = binary.LittleEndian
-			//			if c.PixelFormat.BigEndian == 1 {
-			//			byteOrder = binary.BigEndian
-			//	}
-			log.Printf("hdr: %+v\n", Hdr)
+			binary.Write(bbuf, binary.BigEndian, Hdr)
+			log.Printf("nrects: %d\n", int(Hdr.Nrects))
 			for i := uint16(0); i < Hdr.Nrects; i++ {
+				log.Printf("Rect :%+v\n", Rect)
+
 				binary.Read(c.cc, binary.BigEndian, &Rect)
-				binary.Write(buf, binary.BigEndian, Rect)
-				log.Printf("rect: %+v\n", Rect)
-				bb := make([]byte, Rect.W*Rect.H*uint16(c.PixelFormat.Bpp/8))
-				if _, err = io.ReadFull(c.cc, bb); err != nil {
-					return
+				binary.Write(bbuf, binary.BigEndian, Rect)
+				if Rect.W*Rect.H == uint16(0) {
+					//					Rect.W = c.Width
+					//				Rect.H = c.Height
+					continue
 				}
-				buf.Write(bb)
+
+				bytesPerLine := Rect.W * uint16(c.PixelFormat.Bpp/8)
+				linesToRead := Rect.W * Rect.H / bytesPerLine
+				var bbb int64
+				for n := Rect.H; n > 0; n -= linesToRead {
+					if linesToRead > n {
+						linesToRead = n
+					}
+					bbb += int64(bytesPerLine * linesToRead)
+				}
+
+				if _, err := io.CopyN(buf, c.cc, bbb); err != nil {
+					return nil, err
+				}
+				bbuf.Write(buf.Bytes())
 			}
-			n = copy(b, buf.Bytes())
-			buf.Reset()
-			return
 		case 1:
-			var mn []byte
-			var nColors uint16
-			if mn, err = c.br.Peek(6); err != nil {
-				return
+			mn := make([]byte, 5)
+			if _, err = io.ReadFull(c.cc, mn); err != nil {
+				return nil, err
 			}
-			nColors = binary.BigEndian.Uint16(mn[4:])
-			buf := make([]byte, 6+nColors*6)
-			n, err = io.ReadFull(c.br, buf)
-			n = copy(b, buf)
-			return
+			bbuf.Write(mn)
+			_, err = io.CopyN(buf, c.cc, int64(binary.BigEndian.Uint16(mn[3:])*uint16(6)))
+			bbuf.Write(buf.Bytes())
 		case 2:
-			buf := make([]byte, 1)
-			n, err = io.ReadFull(c.br, buf)
-			n = copy(b, buf)
-			return
+			_, err = io.CopyN(buf, c.cc, 1)
+			bbuf.Write(buf.Bytes())
 		case 3:
-			var mn []byte
-			var Len uint32
-			if mn, err = c.br.Peek(6); err != nil {
-				return
+			mn := make([]byte, 7)
+			if _, err = io.ReadFull(c.cc, mn); err != nil {
+				return nil, err
 			}
-			Len = binary.BigEndian.Uint32(mn[4:])
-			buf := make([]byte, 8+Len)
-			n, err = io.ReadFull(c.br, buf)
-			n = copy(b, buf)
-			return
+			_, err = io.CopyN(buf, c.cc, int64(binary.BigEndian.Uint32(mn[3:])))
+			bbuf.Write(buf.Bytes())
 		}
 	}
-	return
+	return bbuf.Bytes(), err
 }
 
 func (c *Conn) Write(b []byte) (n int, err error) {
-	if len(b) > 4096 {
-		c.bw = bufio.NewWriterSize(c.bw, len(b))
+	if c.cc != nil {
+		log.Printf("CC %v\n", b)
+		//	c.cmu.Lock()
+		//		defer c.cmu.Unlock()
+		n, err = c.cc.Write(b)
+		log.Printf("cc: %d %d\n", n, len(b))
+		//		c.cmu.Unlock()
+		return
 	}
-	n, err = c.bw.Write(b)
-	c.bw.Flush()
+	if c.sc != nil {
+		log.Printf("SC %d\n", b[0])
+		//	c.smu.Lock()
+		//defer c.smu.Unlock()
+		n, err = c.sc.Write(b)
+		return
+	}
 	return
 }
 
