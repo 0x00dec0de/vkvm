@@ -31,6 +31,7 @@ func (srv *Server) Serve(l net.Listener) {
 		if err != nil {
 			return
 		}
+		log.Printf("CONN %+v\n", c)
 		conn := srv.newConn(c)
 		log.Printf("serverVersionHandshake\n")
 		if err := conn.serverVersionHandshake(); err != nil {
@@ -87,6 +88,7 @@ func (srv *Server) newConn(c net.Conn) *Conn {
 		MsgChan:  make(chan []byte, 1),
 		MsgDone:  make(chan bool, 1),
 		InitDone: make(chan bool, 1),
+		MsgClose: make(chan bool, 0),
 	}
 }
 
@@ -94,10 +96,10 @@ func (c *Conn) serverVersionHandshake() error {
 	var protocolVersion [12]byte
 
 	// Respond with the version we will support
-	if err := binary.Write(c.sc, binary.BigEndian, []byte("RFB 003.008\n")); err != nil {
+	if err := binary.Write(c.bw, binary.BigEndian, []byte("RFB 003.008\n")); err != nil {
 		return err
 	}
-
+	c.bw.Flush()
 	// 7.1.1, read the ProtocolVersion message sent by the server.
 	if _, err := io.ReadFull(c.br, protocolVersion[:]); err != nil {
 		return err
@@ -125,23 +127,26 @@ func (c *Conn) serverVersionHandshake() error {
 func (c *Conn) serverSecurityHandshake() error {
 	var securityType uint8
 	if c.Minor >= 7 {
-		if err := binary.Write(c.sc, binary.BigEndian, []uint8{uint8(1), uint8(2)}); err != nil {
+		if err := binary.Write(c.bw, binary.BigEndian, []uint8{uint8(1), uint8(2)}); err != nil {
 			return err
 		}
-		if err := binary.Read(c.sc, binary.BigEndian, &securityType); err != nil {
+		c.bw.Flush()
+		if err := binary.Read(c.br, binary.BigEndian, &securityType); err != nil {
 			return err
 		}
 	} else {
-		if err := binary.Write(c.sc, binary.BigEndian, uint32(2)); err != nil {
+		if err := binary.Write(c.bw, binary.BigEndian, uint32(2)); err != nil {
 			return err
 		}
+		c.bw.Flush()
 		securityType = 2
 	}
 	if err := c.serverAuth(); err != nil {
 		e := err
-		if err = binary.Write(c.sc, binary.BigEndian, uint32(1)); err != nil {
+		if err = binary.Write(c.bw, binary.BigEndian, uint32(1)); err != nil {
 			return err
 		}
+		c.bw.Flush()
 		if c.Minor >= 8 {
 			reasonLen := uint32(len(e.Error()))
 			reason := []byte(e.Error())
@@ -153,32 +158,30 @@ func (c *Conn) serverSecurityHandshake() error {
 			if err = binary.Write(buf, binary.BigEndian, &reason); err != nil {
 				return err
 			}
-			c.sc.Write(buf.Bytes())
+			c.bw.Write(buf.Bytes())
+			c.bw.Flush()
 		}
 		return e
 	}
-	if err := binary.Write(c.sc, binary.BigEndian, uint32(0)); err != nil {
+	if err := binary.Write(c.bw, binary.BigEndian, uint32(0)); err != nil {
 		return err
 	}
+	c.bw.Flush()
 	return nil
 }
 
 func (c *Conn) serverServe() {
-	go func() {
-		defer c.Close()
-		for {
-			buf, err := c.Read()
-			if err == io.EOF {
-				continue
-			}
-			if err != nil {
-				fmt.Printf("server<-client: Error reading message type\n")
-				return
-			}
-			c.MsgChan <- buf
-			<-c.MsgDone
+	defer c.Close()
+	for {
+		buf, err := c.Read()
+		if err != nil {
+			fmt.Printf("server<-client: Error reading message type: %s\n", err.Error())
+			c.MsgClose <- true
+			return
 		}
-	}()
+		c.MsgChan <- buf
+		<-c.MsgDone
+	}
 }
 
 func (c *Conn) serverAuth() (err error) {
@@ -188,10 +191,11 @@ func (c *Conn) serverAuth() (err error) {
 	if err != nil {
 		return err
 	}
-	if err := binary.Write(c.sc, binary.BigEndian, challenge); err != nil {
+	if err := binary.Write(c.bw, binary.BigEndian, challenge); err != nil {
 		return err
 	}
-	if err := binary.Read(c.sc, binary.BigEndian, &response); err != nil {
+	c.bw.Flush()
+	if err := binary.Read(c.br, binary.BigEndian, &response); err != nil {
 		return err
 	}
 
@@ -199,7 +203,7 @@ func (c *Conn) serverAuth() (err error) {
 
 	cli := NewClient()
 
-	n, err := net.Dial("tcp", "127.0.0.1:5901")
+	n, err := net.Dial("tcp", "127.0.0.1:5900")
 	if err != nil {
 		return err
 	}
@@ -218,7 +222,7 @@ func (c *Conn) serverInit() (err error) {
 	var cc *Conn
 	var ok bool
 	var sharedFlag uint8
-	if err = binary.Read(c.sc, binary.BigEndian, &sharedFlag); err != nil {
+	if err = binary.Read(c.br, binary.BigEndian, &sharedFlag); err != nil {
 		return err
 	}
 	_ = sharedFlag
@@ -250,6 +254,7 @@ func (c *Conn) serverInit() (err error) {
 	if err = binary.Write(buf, binary.BigEndian, nameBytes); err != nil {
 		return
 	}
-	c.sc.Write(buf.Bytes())
+	c.bw.Write(buf.Bytes())
+	c.bw.Flush()
 	return nil
 }

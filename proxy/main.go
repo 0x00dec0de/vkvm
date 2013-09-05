@@ -25,7 +25,7 @@ func VNCServer(c *websocket.Conn) {
 
 func main() {
 	p.Targets = make(map[*Conn]*Conn, 1024)
-	l, err := net.Listen("tcp", "127.0.0.2:5900")
+	l, err := net.Listen("tcp", "127.0.0.1:5910")
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
@@ -44,10 +44,11 @@ func main() {
 	for c := range srv.Conns {
 		handleConn(c)
 	}
-
+	select {}
 }
 
 func handleConn(sc *Conn) {
+	var wg sync.WaitGroup
 	var cc *Conn
 	var ok bool
 	p.Lock()
@@ -56,8 +57,39 @@ func handleConn(sc *Conn) {
 		return
 	}
 	p.Unlock()
+	defer sc.Close()
+	defer cc.Close()
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
+		for {
+			select {
+			case <-sc.MsgClose:
+				p.Lock()
+				delete(p.Targets, sc)
+				p.Unlock()
+				return
+			}
+		}
+	}()
 
 	go func() {
+		wg.Add(1)
+		defer wg.Done()
+		for {
+			select {
+			case <-cc.MsgClose:
+				p.Lock()
+				delete(p.Targets, sc)
+				p.Unlock()
+				return
+			}
+		}
+	}()
+
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
 		for {
 			select {
 			case buf := <-sc.MsgChan:
@@ -73,6 +105,8 @@ func handleConn(sc *Conn) {
 	}()
 
 	go func() {
+		wg.Add(1)
+		defer wg.Done()
 		for {
 			select {
 			case buf := <-cc.MsgChan:
@@ -87,5 +121,5 @@ func handleConn(sc *Conn) {
 		}
 	}()
 
-	select {}
+	wg.Wait()
 }

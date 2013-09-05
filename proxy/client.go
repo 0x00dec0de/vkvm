@@ -5,7 +5,6 @@ import (
 	"crypto/des"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"log"
 	"net"
 )
@@ -51,13 +50,14 @@ func (cli *Client) newConn(c net.Conn) *Conn {
 		MsgChan:  make(chan []byte, 0),
 		MsgDone:  make(chan bool, 0),
 		InitDone: make(chan bool, 1),
+		MsgClose: make(chan bool, 0),
 	}
 }
 
 func (c *Conn) clientVersionHandshake() error {
 	var protocolVersion [12]byte
 
-	if err := binary.Read(c.cc, binary.BigEndian, &protocolVersion); err != nil {
+	if err := binary.Read(c.br, binary.BigEndian, &protocolVersion); err != nil {
 		return err
 	}
 
@@ -75,7 +75,7 @@ func (c *Conn) clientVersionHandshake() error {
 		return fmt.Errorf("unsupported minor version, less than 8: %d", maxMinor)
 	}
 
-	if err = binary.Write(c.cc, binary.BigEndian, []byte("RFB 003.008\n")); err != nil {
+	if err = binary.Write(c.bw, binary.BigEndian, []byte("RFB 003.008\n")); err != nil {
 		return err
 	}
 	c.bw.Flush()
@@ -85,24 +85,24 @@ func (c *Conn) clientVersionHandshake() error {
 func (c *Conn) clientSecurityHandshake() error {
 	var err error
 	var numSecurityTypes uint8
-	if err = binary.Read(c.cc, binary.BigEndian, &numSecurityTypes); err != nil {
+	if err = binary.Read(c.br, binary.BigEndian, &numSecurityTypes); err != nil {
 		return err
 	}
 
 	if numSecurityTypes == 0 {
 		var reasonLength uint32
-		if err = binary.Read(c.cc, binary.BigEndian, &reasonLength); err != nil {
+		if err = binary.Read(c.br, binary.BigEndian, &reasonLength); err != nil {
 			return err
 		}
 		reasonText := make([]byte, reasonLength)
-		if err = binary.Read(c.cc, binary.BigEndian, &reasonText); err != nil {
+		if err = binary.Read(c.br, binary.BigEndian, &reasonText); err != nil {
 			return err
 		}
 		return fmt.Errorf("no security types: %s", reasonText)
 	}
 
 	securityTypes := make([]uint8, numSecurityTypes)
-	if err = binary.Read(c.cc, binary.BigEndian, &securityTypes); err != nil {
+	if err = binary.Read(c.br, binary.BigEndian, &securityTypes); err != nil {
 		return err
 	}
 
@@ -119,27 +119,27 @@ func (c *Conn) clientSecurityHandshake() error {
 	}
 
 	// Respond back with the security type we'll use
-	if err = binary.Write(c.cc, binary.BigEndian, uint8(2)); err != nil {
+	if err = binary.Write(c.bw, binary.BigEndian, uint8(2)); err != nil {
 		return err
 	}
-
+	c.bw.Flush()
 	if err = c.clientAuth(); err != nil {
 		return err
 	}
 
 	// 7.1.3 SecurityResult Handshake
 	var securityResult uint32
-	if err = binary.Read(c.cc, binary.BigEndian, &securityResult); err != nil {
+	if err = binary.Read(c.br, binary.BigEndian, &securityResult); err != nil {
 		return err
 	}
 
 	if securityResult == 1 {
 		var reasonLength uint32
-		if err = binary.Read(c.cc, binary.BigEndian, &reasonLength); err != nil {
+		if err = binary.Read(c.br, binary.BigEndian, &reasonLength); err != nil {
 			return err
 		}
 		reasonText := make([]byte, reasonLength)
-		if err = binary.Read(c.cc, binary.BigEndian, &reasonText); err != nil {
+		if err = binary.Read(c.br, binary.BigEndian, &reasonText); err != nil {
 			return err
 		}
 		return fmt.Errorf("security handshake failed: %s", reasonText)
@@ -149,28 +149,28 @@ func (c *Conn) clientSecurityHandshake() error {
 
 func (c *Conn) clientInit() error {
 	var err error
-
-	if err = binary.Write(c.cc, binary.BigEndian, c.SharedFlag); err != nil {
+	c.SharedFlag = 1
+	if err = binary.Write(c.bw, binary.BigEndian, c.SharedFlag); err != nil {
+		return err
+	}
+	c.bw.Flush()
+	if err = binary.Read(c.br, binary.BigEndian, &c.Width); err != nil {
+		return err
+	}
+	if err = binary.Read(c.br, binary.BigEndian, &c.Height); err != nil {
 		return err
 	}
 
-	if err = binary.Read(c.cc, binary.BigEndian, &c.Width); err != nil {
-		return err
-	}
-	if err = binary.Read(c.cc, binary.BigEndian, &c.Height); err != nil {
-		return err
-	}
-
-	if err = binary.Read(c.cc, binary.BigEndian, &c.PixelFormat); err != nil {
+	if err = binary.Read(c.br, binary.BigEndian, &c.PixelFormat); err != nil {
 		return err
 	}
 	var nameLength uint32
-	if err = binary.Read(c.cc, binary.BigEndian, &nameLength); err != nil {
+	if err = binary.Read(c.br, binary.BigEndian, &nameLength); err != nil {
 		return err
 	}
 
 	nameBytes := make([]uint8, nameLength)
-	if err = binary.Read(c.cc, binary.BigEndian, &nameBytes); err != nil {
+	if err = binary.Read(c.br, binary.BigEndian, &nameBytes); err != nil {
 		return err
 	}
 
@@ -180,31 +180,23 @@ func (c *Conn) clientInit() error {
 }
 
 func (c *Conn) clientServe() {
-	go func() {
-		defer c.Close()
-		for {
-			buf, err := c.Read()
-			if err == io.EOF {
-				continue
-			}
-			if err != nil {
-				fmt.Printf("client<-server: Error reading message type, %s\n", err.Error())
-				return
-			}
-			log.Printf("cc: start send to chan\n")
-			c.MsgChan <- buf
-			log.Printf("cc: stop send to chan\n")
-			log.Printf("cc: start wait for done\n")
-			<-c.MsgDone
-			log.Printf("cc: stop wait for done\n")
+	defer c.Close()
+	for {
+		buf, err := c.Read()
+		if err != nil {
+			fmt.Printf("client<-server: Error reading message type, %s\n", err.Error())
+			c.MsgClose <- true
+			return
 		}
-	}()
+		c.MsgChan <- buf
+		<-c.MsgDone
+	}
 }
 
 func (c *Conn) clientAuth() (err error) {
 	challenge := make([]uint8, 16)
 
-	if err := binary.Read(c.cc, binary.BigEndian, &challenge); err != nil {
+	if err := binary.Read(c.br, binary.BigEndian, &challenge); err != nil {
 		return err
 	}
 
@@ -237,8 +229,9 @@ func (c *Conn) clientAuth() (err error) {
 
 	enc.Encrypt(response[:8], challenge[:8])
 	enc.Encrypt(response[8:], challenge[8:])
-	if err = binary.Write(c.cc, binary.BigEndian, response); err != nil {
+	if err = binary.Write(c.bw, binary.BigEndian, response); err != nil {
 		return err
 	}
+	c.bw.Flush()
 	return nil
 }
