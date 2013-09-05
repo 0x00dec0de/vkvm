@@ -51,6 +51,32 @@ func (srv *Server) Serve(l net.Listener) {
 	}
 }
 
+func (srv *Server) addConn(c net.Conn) (err error) {
+	conn := srv.newConn(c)
+	log.Printf("serverVersionHandshake\n")
+	if err := conn.serverVersionHandshake(); err != nil {
+		c.Close()
+		return err
+	}
+	log.Printf("serverSecurityHandshake\n")
+	if err := conn.serverSecurityHandshake(); err != nil {
+		c.Close()
+		return err
+	}
+	log.Printf("serverInit\n")
+	if err := conn.serverInit(); err != nil {
+		c.Close()
+		return err
+	}
+	select {
+	case srv.conns <- conn:
+	default:
+	}
+	log.Printf("serverServe\n")
+	go conn.serverServe()
+	return nil
+}
+
 func (srv *Server) newConn(c net.Conn) *Conn {
 	return &Conn{
 		sc:       c,
@@ -97,13 +123,11 @@ func (c *Conn) serverVersionHandshake() error {
 
 func (c *Conn) serverSecurityHandshake() error {
 	var securityType uint8
-
 	if c.Minor >= 7 {
 		if err := binary.Write(c.bw, binary.BigEndian, []uint8{uint8(1), uint8(2)}); err != nil {
 			return err
 		}
 		c.bw.Flush()
-
 		if err := binary.Read(c.br, binary.BigEndian, &securityType); err != nil {
 			return err
 		}
@@ -114,7 +138,6 @@ func (c *Conn) serverSecurityHandshake() error {
 		c.bw.Flush()
 		securityType = 2
 	}
-
 	if err := c.serverAuth(); err != nil {
 		e := err
 		if err = binary.Write(c.bw, binary.BigEndian, uint32(1)); err != nil {
