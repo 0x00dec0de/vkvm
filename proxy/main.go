@@ -39,19 +39,6 @@ func handleConn(sc *Conn) {
 		return
 	}
 	p.Unlock()
-	go func() {
-		for {
-			log.Printf("AAA\n")
-			select {
-			case <-sc.MsgChan:
-				if n, err := io.Copy(cc, sc); err != nil {
-					log.Printf("sc->cc: %d %s\n", n, err.Error())
-					return
-				}
-				sc.MsgDone <- true
-			}
-		}
-	}()
 
 	go func() {
 		for {
@@ -62,6 +49,18 @@ func handleConn(sc *Conn) {
 					return
 				}
 				cc.MsgDone <- true
+			}
+		}
+	}()
+	go func() {
+		for {
+			select {
+			case <-sc.MsgChan:
+				if n, err := io.Copy(cc, sc); err != nil {
+					log.Printf("sc->cc: %d %s\n", n, err.Error())
+					return
+				}
+				sc.MsgDone <- true
 			}
 		}
 	}()

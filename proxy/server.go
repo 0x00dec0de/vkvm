@@ -111,6 +111,7 @@ func (c *Conn) serverSecurityHandshake() error {
 		if err := binary.Write(c.bw, binary.BigEndian, uint32(2)); err != nil {
 			return err
 		}
+		c.bw.Flush()
 		securityType = 2
 	}
 
@@ -125,7 +126,6 @@ func (c *Conn) serverSecurityHandshake() error {
 			if err = binary.Write(c.bw, binary.BigEndian, reasonLen); err != nil {
 				return err
 			}
-
 			reason := []byte(e.Error())
 			if err = binary.Write(c.bw, binary.BigEndian, &reason); err != nil {
 				return err
