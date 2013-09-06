@@ -203,7 +203,7 @@ func (c *Conn) serverAuth() (err error) {
 
 	cli := NewClient()
 
-	n, err := net.Dial("tcp", "127.0.0.1:5900")
+	n, err := net.Dial("tcp", "127.0.0.1:5901")
 	if err != nil {
 		return err
 	}
@@ -246,6 +246,7 @@ func (c *Conn) serverInit() (err error) {
 	if err = binary.Write(buf, binary.BigEndian, cc.PixelFormat); err != nil {
 		return
 	}
+	c.PixelFormat = cc.PixelFormat
 	nameBytes := []uint8(cc.Name)
 	nameLen := uint32(len(nameBytes))
 	if err = binary.Write(buf, binary.BigEndian, nameLen); err != nil {

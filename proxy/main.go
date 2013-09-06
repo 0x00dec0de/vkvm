@@ -3,7 +3,7 @@ package main
 import (
 	"code.google.com/p/go.net/websocket"
 	_ "flag"
-	_ "io"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -20,7 +20,13 @@ var p Proxy
 var srv *Server
 
 func VNCServer(c *websocket.Conn) {
+	//	io.Copy(ws, ws)
 	srv.addConn(c)
+}
+
+func ws(c *websocket.Conn) {
+	io.Copy(c, c)
+	//	srv.addConn(c)
 }
 
 func main() {
@@ -34,10 +40,30 @@ func main() {
 	go srv.Serve(l)
 
 	go func() {
-		http.Handle("/", websocket.Handler(VNCServer))
-		err = http.ListenAndServe("127.0.0.2:8080", nil)
-		if err != nil {
+		if wsConfig, err := websocket.NewConfig("ws://127.0.0.2:8080/", "http://127.0.0.2:8080"); err != nil {
 			log.Fatalf(err.Error())
+		} else {
+			wsConfig.Protocol = []string{"base64", "binary"}
+			http.Handle("/websockify", websocket.Server{Handler: VNCServer, Config: *wsConfig})
+			http.Handle("/novnc/", http.StripPrefix("/novnc/", http.FileServer(http.Dir("../novnc/"))))
+			err = http.ListenAndServe("127.0.0.2:8080", nil)
+			if err != nil {
+				log.Fatalf(err.Error())
+			}
+		}
+	}()
+
+	go func() {
+		if wsConfig, err := websocket.NewConfig("ws://localhost:17523/", "http://127.0.0.2:8080"); err != nil {
+			log.Fatalf(err.Error())
+		} else {
+			wsConfig.Protocol = []string{"base64", "binary"}
+			http.Handle("/", websocket.Server{Handler: ws, Config: *wsConfig})
+			//			http.Handle("/novnc/", http.StripPrefix("/novnc/", http.FileServer(http.Dir("../novnc/"))))
+			err = http.ListenAndServe("127.0.0.1:17523", nil)
+			if err != nil {
+				log.Fatalf(err.Error())
+			}
 		}
 	}()
 

@@ -53,16 +53,10 @@ func (c *Conn) Read() ([]byte, error) {
 	defer buf.Reset()
 	var m byte
 	if c.sc != nil {
-		//		log.Printf("c.smu.Lock()\n")
-		//		c.smu.Lock()
-		//		log.Printf("c.smu.Unlock()\n")
-		//		defer c.smu.Unlock()
 		if m, err = c.br.ReadByte(); err != nil {
-			//log.Printf(err.Error())
 			return nil, err
 		}
 		bbuf.Write([]byte{m})
-		log.Printf("SC: %+v\n", m)
 		switch m {
 		default:
 			return nil, errors.New("message unknown")
@@ -78,8 +72,11 @@ func (c *Conn) Read() ([]byte, error) {
 				return nil, err
 			}
 			binary.Write(bbuf, binary.BigEndian, uint8(0))
+			//			binary.Write(bbuf, binary.BigEndian, uint16(2))
+			//			binary.Write(bbuf, binary.BigEndian, []int32{int32(0), int32(1)})
 			binary.Write(bbuf, binary.BigEndian, uint16(1))
-			binary.Write(bbuf, binary.BigEndian, []int32{int32(0)}) //, int32(1)})
+			binary.Write(bbuf, binary.BigEndian, []int32{int32(0)})
+
 		case 3:
 			_, err = io.CopyN(buf, c.br, 9)
 			bbuf.Write(buf.Bytes())
@@ -102,22 +99,14 @@ func (c *Conn) Read() ([]byte, error) {
 		}
 	}
 	if c.cc != nil {
-
-		//		log.Printf("c.cmu.Lock()\n")
-		//		c.cmu.Lock()
-		//		log.Printf("c.cmu.Unlock()\n")
-		//		defer c.cmu.Unlock()
-		//	Retry:
 		if m, err = c.br.ReadByte(); err != nil {
 			return nil, err
 		}
-		log.Printf("CC: %+v\n", m)
 		bbuf.Write([]byte{m})
 		switch m {
 		default:
 			return nil, errors.New("message unknown")
 		case 0:
-			log.Printf("cc: framebufferupdate\n")
 			var Hdr struct {
 				Pad    uint8
 				Nrects uint16
@@ -131,8 +120,8 @@ func (c *Conn) Read() ([]byte, error) {
 			}
 			binary.Read(c.br, binary.BigEndian, &Hdr)
 			binary.Write(bbuf, binary.BigEndian, Hdr)
-			log.Printf("nrects: %d\n", int(Hdr.Nrects))
 			for i := uint16(0); i < Hdr.Nrects; i++ {
+
 				//Retry:
 				if err = binary.Read(c.br, binary.BigEndian, &Rect); err != nil {
 					return nil, err
@@ -140,31 +129,20 @@ func (c *Conn) Read() ([]byte, error) {
 				if err = binary.Write(bbuf, binary.BigEndian, Rect); err != nil {
 					return nil, err
 				}
-				log.Printf("rect: %+v\n", Rect)
+				log.Printf("Rrect: %+v\n", Rect)
 				if int64(Rect.W*Rect.H) == int64(0) {
 					Rect.W = c.Width
 					Rect.H = c.Height
 					//bbuf.Reset()
 					//buf.Reset()
 					//goto Retry
-					continue
+					//					continue
 				}
 				switch Rect.Type {
 				case int32(0):
-
 					bytesPerLine := int64(Rect.W * uint16(c.PixelFormat.Bpp/8))
 					linesToRead := int64(Rect.W*Rect.H) / bytesPerLine
 					var bbb int64
-
-					/*
-						for n := int64(Rect.H); n > 0; n -= linesToRead {
-							if linesToRead > n {
-								linesToRead = n
-							}
-							bbb += bytesPerLine * linesToRead
-						}
-					*/
-
 					for Rect.H > 0 {
 						if linesToRead > int64(Rect.H) {
 							linesToRead = int64(Rect.H)
@@ -181,20 +159,20 @@ func (c *Conn) Read() ([]byte, error) {
 					if _, err := io.CopyN(buf, c.br, 4); err != nil {
 						return nil, err
 					}
-					/*			case int32(-239):
-								bytesPerLine := Rect.W * uint16(c.PixelFormat.Bpp/8)
-								linesToRead := Rect.W * Rect.H / bytesPerLine
-								var bbb int64
+					/*				case int32(-239):
+									bytesPerLine := Rect.W * uint16(c.PixelFormat.Bpp/8)
+									linesToRead := Rect.W * Rect.H / bytesPerLine
+									var bbb int64
 
-								for n := Rect.H; n > 0; n -= linesToRead {
-									if linesToRead > n {
-										linesToRead = n
+									for n := Rect.H; n > 0; n -= linesToRead {
+										if linesToRead > n {
+											linesToRead = n
+										}
+										bbb += int64(bytesPerLine * linesToRead)
 									}
-									bbb += int64(bytesPerLine * linesToRead)
-								}
-								if _, err := io.CopyN(buf, c.br, bbb); err != nil {
-									return nil, err
-								}
+									if _, err := io.CopyN(buf, c.br, bbb); err != nil {
+										return nil, err
+									}
 					*/
 				}
 				bbuf.Write(buf.Bytes())
@@ -223,21 +201,69 @@ func (c *Conn) Read() ([]byte, error) {
 }
 
 func (c *Conn) Write(b []byte) (n int, err error) {
-	if c.cc != nil {
-		//	c.cmu.Lock()
-		//		defer c.cmu.Unlock()
-		n, err = c.bw.Write(b)
-		c.bw.Flush()
-		//		c.cmu.Unlock()
-		return
+	//	var m byte = b[0]
+	c.bw = bufio.NewWriterSize(c.bw, len(b))
+
+	//	if c.sc != nil {
+	/*		switch m {
+			default:
+				n, err = c.bw.Write(b)
+
+					case uint8(0):
+						c.bw.Write(b[:4])
+						nRects := binary.BigEndian.Uint16(b[2:4])
+						start := int64(4)
+						var Rect struct {
+							X    uint16
+							Y    uint16
+							W    uint16
+							H    uint16
+							Type int32
+						}
+						for i := uint16(0); i < nRects; i++ {
+							Rect.X = binary.BigEndian.Uint16(b[start : start+2])
+							_ = Rect.X
+							Rect.Y = binary.BigEndian.Uint16(b[start+2 : start+4])
+							Rect.W = binary.BigEndian.Uint16(b[start+4 : start+6])
+							Rect.H = binary.BigEndian.Uint16(b[start+6 : start+8])
+							Rect.Type = int32(binary.BigEndian.Uint32(b[start+8 : start+12]))
+							log.Printf("Wrect: %+v\n", Rect)
+							switch Rect.Type {
+							case int32(0):
+								if int64(Rect.W*Rect.H) == int64(0) {
+									Rect.W = c.Width
+									Rect.H = c.Height
+									//bbuf.Reset()
+									//buf.Reset()
+									//goto Retry
+									//          continue
+								}
+								log.Printf("newrect: %+v\n", c.PixelFormat)
+								bytesPerLine := int64(Rect.W * uint16(c.PixelFormat.Bpp/8))
+								linesToRead := int64(Rect.W*Rect.H) / bytesPerLine
+								var bbb int64
+								for Rect.H > 0 {
+									if linesToRead > int64(Rect.H) {
+										linesToRead = int64(Rect.H)
+									}
+									bbb += bytesPerLine * linesToRead
+									Rect.H -= uint16(linesToRead)
+									Rect.Y += uint16(linesToRead)
+								}
+								c.bw.Write(b[start : start+bbb])
+								//					c.bw.Flush()
+								start += bbb
+							}
+						}
+
+			}
+	*/
+	//	}
+	n, err = c.bw.Write(b)
+	if err != nil {
+		log.Printf("ERR: %s\n%+v\n%+v\n", err.Error(), c, b)
 	}
-	if c.sc != nil {
-		//	c.smu.Lock()
-		//defer c.smu.Unlock()
-		n, err = c.bw.Write(b)
-		c.bw.Flush()
-		return
-	}
+	c.bw.Flush()
 	return
 }
 
