@@ -10,14 +10,22 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/syslog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 )
 
 var (
-	listen = flag.String("listen", ":80", "Location to listen for connections")
+	lbase64  = flag.String("lb", ":443", "listen for base64 websocket conns")
+	lbinary  = flag.String("ln", ":17523", "listen for binary websocket conns")
+	tlscrt   = flag.String("tlscrt", "", "TLS path for certificate")
+	tlskey   = flag.String("tlskey", "", "TLS path for key")
+	authurl  = flag.String("authurl", "", "http address for external auth")
+	authdata = flag.String("authdata", "", "http form values used in http auth")
+	l, _     = syslog.NewLogger(syslog.LOG_DEBUG|syslog.LOG_DAEMON, log.LstdFlags)
 )
 
 type Conn struct {
@@ -26,7 +34,8 @@ type Conn struct {
 	retries   int
 	challenge []byte
 	password  []byte
-	location  string
+	Dst       string
+	Src       string
 }
 
 type Proxy struct {
@@ -38,23 +47,16 @@ var p Proxy
 
 func main() {
 	flag.Parse()
-	//	var wsConfig *websocket.Config
-	//	if wsConfig, err = websocket.NewConfig("ws://127.0.0.1:80/", "http://127.0.0.1:80"); err != nil {
-	//		log.Fatalf(err.Error())
-	//		return
-	//	}
 
 	http.Handle("/websockify", websocket.Server{Handler: wsHandler,
-		/*		Config: *wsConfig,*/
 		Handshake: func(ws *websocket.Config, req *http.Request) error {
 			ws.Protocol = []string{"base64"}
 			//			ws.Protocol = []string{"binary"}
 			return nil
 		}})
 
-	//	http.Handle("/novnc/", http.StripPrefix("/novnc/", http.FileServer(http.Dir("./novnc/"))))
 	p.conns = make(map[*Conn]*Conn, 4096)
-	log.Fatal(http.ListenAndServe(*listen, nil))
+	l.Fatal(http.ListenAndServeTLS(*lbase64, *tlscrt, *tlskey, nil))
 }
 
 func getConn(srv *Conn) (cli *Conn, err error) {
@@ -79,36 +81,51 @@ func reconnect(srv *Conn) (cli *Conn, err error) {
 	enc.Write(srv.challenge)
 	enc.Close()
 
-	if res, err = http.Post("https://api.clodo.ru/system/vnc", "text/plain", buf); err != nil || res == nil {
-		return nil, fmt.Errorf("failed to get auth data")
-	}
+	v := url.Values{}
+	v.Set("hash", buf.String())
 	buf.Reset()
-	if res.StatusCode != 200 || res.Body == nil {
+
+	v.Set("ip", srv.Src)
+	if *authdata != "" {
+		parts := strings.Split(*authdata, "&")
+		for _, pv := range parts {
+			p := strings.Split(pv, "=")
+			if len(p) == 2 {
+				v.Set(p[0], p[1])
+			}
+		}
+	}
+	if res, err = http.PostForm(*authurl, v); err != nil || res == nil {
 		return nil, fmt.Errorf("failed to get auth data")
 	}
-	io.Copy(buf, res.Body)
+
+	if res.StatusCode != 200 || res.Body == nil {
+		return nil, fmt.Errorf("failed to get auth data: error code not 200 or body nil")
+	}
+	_, err = io.Copy(buf, res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get auth data: %s", err.Error())
+	}
+	log.Printf("http auth: %s\n", buf.Bytes())
 	res.Body.Close()
 
 	data := strings.Split(buf.String(), " ")
 	if len(data) < 2 {
-		return nil, fmt.Errorf("failed to get auth data")
+		return nil, fmt.Errorf("failed to get auth data data invalid")
 	}
 	buf.Reset()
 
-	srv.location = data[0]
-	if err != nil {
-		return nil, fmt.Errorf("failed to get auth data")
-	}
+	srv.Dst = data[0]
 	srv.password = []byte(data[1])
 
-	c, err := net.Dial("tcp", srv.location)
+	c, err := net.Dial("tcp", srv.Dst)
 	if err != nil {
 		if c != nil {
 			c.Close()
 		}
 		return nil, err
 	}
-	cli = &Conn{c: c, location: srv.location, password: srv.password}
+	cli = &Conn{c: c, Dst: srv.Dst, password: srv.password}
 
 	var protocolVersion [12]byte
 
@@ -196,7 +213,7 @@ func reconnect(srv *Conn) (cli *Conn, err error) {
 	}
 
 	if srv.retries != 1 {
-		if err = binary.Write(cli.c, binary.BigEndian, uint8(0)); err != nil {
+		if err = binary.Write(cli.c, binary.BigEndian, uint8(1)); err != nil {
 			return nil, err
 		}
 	}
@@ -204,15 +221,11 @@ func reconnect(srv *Conn) (cli *Conn, err error) {
 }
 
 func cliAuth(cli *Conn) (err error) {
-
-	log.Printf("cliAuth\n")
 	challenge := make([]uint8, 16)
 
 	if err := binary.Read(cli.c, binary.BigEndian, &challenge); err != nil {
 		return err
 	}
-
-	//external auth
 	pwd := cli.password
 	if len(pwd) > 8 {
 		pwd = pwd[:8]
@@ -244,7 +257,6 @@ func cliAuth(cli *Conn) (err error) {
 	if err = binary.Write(cli.c, binary.BigEndian, response); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -252,7 +264,6 @@ func srvAuth(srv *Conn) (err error) {
 	w := base64.NewEncoder(base64.StdEncoding, srv.c)
 	r := base64.NewDecoder(base64.StdEncoding, srv.c)
 
-	log.Printf("srvAuth\n")
 	challenge := make([]uint8, 16)
 	response := make([]uint8, 16)
 
@@ -273,15 +284,12 @@ func cliHandshake(srv *Conn) (err error) {
 	w := base64.NewEncoder(base64.StdEncoding, srv.c)
 	r := base64.NewDecoder(base64.StdEncoding, srv.c)
 
-	log.Printf("cliHandshake\n")
 	var protocolVersion [12]byte
 	// Respond with the version we will support
-	log.Printf("1\n")
 	if err := binary.Write(w, binary.BigEndian, []byte("RFB 003.008\n")); err != nil {
 		return err
 	}
 	w.Close()
-	log.Printf("2\n")
 	if _, err := io.ReadFull(r, protocolVersion[:]); err != nil {
 		return err
 	}
@@ -302,28 +310,22 @@ func cliHandshake(srv *Conn) (err error) {
 
 	var securityType uint8
 	if maxMinor >= 7 {
-		log.Printf("3\n")
 		if err := binary.Write(w, binary.BigEndian, []uint8{uint8(1), uint8(2)}); err != nil {
 			return err
 		}
 		w.Close()
-		log.Printf("4\n")
 		if err := binary.Read(r, binary.BigEndian, &securityType); err != nil {
 			return err
 		}
-		log.Printf("4111\n")
 	} else {
-		log.Printf("5\n")
 		if err := binary.Write(w, binary.BigEndian, uint32(2)); err != nil {
 			return err
 		}
 		w.Close()
 		securityType = 2
 	}
-	log.Printf("6\n")
 	if err := srvAuth(srv); err != nil {
 		e := err
-		log.Printf("7\n")
 		if err = binary.Write(w, binary.BigEndian, uint32(1)); err != nil {
 			return err
 		}
@@ -333,21 +335,17 @@ func cliHandshake(srv *Conn) (err error) {
 			reason := []byte(e.Error())
 			buf := new(bytes.Buffer)
 			defer buf.Reset()
-			log.Printf("8\n")
 			if err = binary.Write(buf, binary.BigEndian, reasonLen); err != nil {
 				return err
 			}
-			log.Printf("9\n")
 			if err = binary.Write(buf, binary.BigEndian, &reason); err != nil {
 				return err
 			}
-			log.Printf("10\n")
 			w.Write(buf.Bytes())
 			w.Close()
 		}
 		return e
 	}
-	log.Printf("11\n")
 	if err := binary.Write(w, binary.BigEndian, uint32(0)); err != nil {
 		return err
 	}
@@ -356,24 +354,34 @@ func cliHandshake(srv *Conn) (err error) {
 }
 
 func wsHandler(ws *websocket.Conn) {
+	cliClose := make(chan bool, 0)
+	srvClose := make(chan bool, 0)
+	wsClosed := false
 	var err error
 	var cli *Conn
 	var srv *Conn
 
-	//	defer ws.Close()
+	//TODO: retunr right rfb auth error
+	defer ws.Close()
 
 	srv = &Conn{c: ws}
 	defer srv.c.Close()
+	defer delete(p.conns, srv)
+	defer log.Printf("exited\n")
 
 	if err := cliHandshake(srv); err != nil {
+		log.Printf(err.Error())
 		return
 	}
-
+	srv.Src, _, _ = net.SplitHostPort(ws.Request().RemoteAddr)
 	cli, err = reconnect(srv)
+	if cli != nil {
+		defer cli.c.Close()
+	}
 	if err != nil {
+		log.Printf(err.Error())
 		return
 	}
-	defer cli.c.Close()
 
 	go func() {
 		sbuf := make([]byte, 32*1024)
@@ -381,39 +389,55 @@ func wsHandler(ws *websocket.Conn) {
 		for {
 			n, e := srv.c.Read(sbuf)
 			if e != nil {
-				return
+				break
 			}
 			n, e = base64.StdEncoding.Decode(dbuf, sbuf[0:n])
 			if e != nil {
-				return
+				break
 			}
 			n, e = cli.c.Write(dbuf[0:n])
 			if e != nil {
-				return
+				break
 			}
 		}
+		wsClosed = true
+		srvClose <- true
+		return
 	}()
 
 	go func() {
 		sbuf := make([]byte, 32*1024)
 		dbuf := make([]byte, 64*1024)
 		for {
+
 			n, e := cli.c.Read(sbuf)
-			if e != nil {
+			if e != nil && !wsClosed {
 				cli, err = reconnect(srv)
 				if err != nil {
-					return
+					break
 				}
 			}
+			if wsClosed {
+				break
+			}
 			base64.StdEncoding.Encode(dbuf, sbuf[0:n])
-			//			n = ((n + 2) / 3) * 4
 			n = base64.StdEncoding.EncodedLen(len(sbuf[0:n]))
 			_, err := srv.c.Write(dbuf[0:n])
 			if err != nil {
-				return
+				break
 			}
 		}
+		cliClose <- true
 	}()
 
-	select {}
+	for {
+
+		select {
+		case <-srvClose:
+			return
+		case <-cliClose:
+			return
+
+		}
+	}
 }

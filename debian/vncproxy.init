@@ -1,0 +1,51 @@
+#!/bin/sh
+# Start/stop the vncproxy daemon.
+#
+### BEGIN INIT INFO
+# Provides:          vncproxy
+# Required-Start:    $remote_fs $syslog $time
+# Required-Stop:     $remote_fs $syslog $time
+# Should-Start:      $network $named slapd autofs ypbind nscd nslcd
+# Should-Stop:       $network $named slapd autofs ypbind nscd nslcd
+# Default-Start:     2 3 4 5
+# Default-Stop:
+# Short-Description: websocket vncproxy
+# Description:       vncproxy proxies websocket vnc sessions to real vnc servers
+### END INIT INFO
+
+PATH=/bin:/usr/bin:/sbin:/usr/sbin
+DESC="vncproxy daemon"
+NAME=vncproxy
+DAEMON=/usr/bin/vncproxy
+PIDFILE=/var/run/vncproxy.pid
+SCRIPTNAME=/etc/init.d/"$NAME"
+
+test -f $DAEMON || exit 0
+
+. /lib/lsb/init-functions
+
+[ -r /etc/default/vncproxy ] && . /etc/default/vncproxy
+
+case "$1" in
+start)	log_daemon_msg "Starting vncproxy daemon" "vncproxy"
+        start_daemon -p $PIDFILE $DAEMON $EXTRA_OPTS
+        log_end_msg $?
+	;;
+stop)	log_daemon_msg "Stopping vncproxy daemon" "vncproxy"
+        killproc -p $PIDFILE $DAEMON
+        RETVAL=$?
+        [ $RETVAL -eq 0 ] && [ -e "$PIDFILE" ] && rm -f $PIDFILE
+        log_end_msg $RETVAL
+        ;;
+restart) log_daemon_msg "Restarting vncproxy daemon" "vncproxy" 
+        $0 stop
+        $0 start
+        ;;
+status)
+        status_of_proc -p $PIDFILE $DAEMON $NAME && exit 0 || exit $?
+        ;;
+*)	log_action_msg "Usage: /etc/init.d/vncproxy {start|stop|status|restart}"
+        exit 2
+        ;;
+esac
+exit 0

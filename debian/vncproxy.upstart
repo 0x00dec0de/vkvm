@@ -1,0 +1,24 @@
+description "vncproxy"
+
+start on filesystem or runlevel [2345]
+stop on runlevel [!2345]
+
+env PIDFILE=/var/run/vncproxy.pid
+env DAEMON=/usr/bin/vncproxy
+
+pre-start script
+  [ ! -f /etc/default/vncproxy ] && { stop; exit 0; }
+  . /etc/default/vncproxy
+end script
+
+post-stop exec rm -f $PIDFILE
+
+script
+  . /etc/default/vncproxy
+  exec start-stop-daemon --start --pidfile $PIDFILE --make-pidfile --exec $DAEMON -- $VNCPROXY_OPTS 2&1 >> /var/log/vncproxy.log
+end script
+
+
+respawn
+respawn limit 10 5
+umask 022
