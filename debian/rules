@@ -11,6 +11,8 @@ export DH_VERBOSE=1
 
 override_dh_clean:
 	dh_clean
+	rm -rf third_party/
+	mkdir -p third_party/code.google.com/p/ 
 	hg --insecure clone -r 127da548775d https://code.google.com/p/go.net/ third_party/code.google.com/p/go.net
 
 override_dh_install:
