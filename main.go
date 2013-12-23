@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"log/syslog"
+	//	"log/syslog"
 	"net"
 	"net/http"
 	"net/url"
@@ -58,7 +58,7 @@ func main() {
 		}})
 
 	p.conns = make(map[*Conn]*Conn, 4096)
-	l.Fatal(http.ListenAndServeTLS(*lbase64, *tlscrt, *tlskey, nil))
+	log.Fatal(http.ListenAndServeTLS(*lbase64, *tlscrt, *tlskey, nil))
 }
 
 func getConn(srv *Conn) (cli *Conn, err error) {
