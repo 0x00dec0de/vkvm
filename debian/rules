@@ -17,7 +17,7 @@ override_dh_clean:
 override_dh_install:
 	mkdir -p third_party/src/code.google.com/p/
 	hg clone --insecure -r 127da548775d https://code.google.com/p/go.net/ $(PWD)/third_party/src/code.google.com/p/go.net
-	GOPATH=$(PWD)/third_party/ go build -a -x
+	GOPATH=$(PWD)/third_party/ go build -a -x -o vncproxy
 	dh_install
 
 %:
