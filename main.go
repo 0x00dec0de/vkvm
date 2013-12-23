@@ -26,7 +26,8 @@ var (
 	tlskey   = flag.String("tlskey", "", "TLS path for key")
 	authurl  = flag.String("authurl", "", "http address for external auth")
 	authdata = flag.String("authdata", "", "http form values used in http auth")
-	l, _     = syslog.NewLogger(syslog.LOG_DEBUG|syslog.LOG_DAEMON, log.LstdFlags)
+
+//	l, _     = syslog.NewLogger(syslog.LOG_DEBUG|syslog.LOG_DAEMON, log.LstdFlags)
 )
 
 type Conn struct {
