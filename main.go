@@ -21,6 +21,7 @@ import (
 var (
 	lbase64  = flag.String("lb", ":443", "listen for base64 websocket conns")
 	lbinary  = flag.String("ln", ":17523", "listen for binary websocket conns")
+	lvnc     = flag.String("lvnc", ":5900", "listen for vnc conns")
 	tlscrt   = flag.String("tlscrt", "", "TLS path for certificate")
 	tlskey   = flag.String("tlskey", "", "TLS path for key")
 	authurl  = flag.String("authurl", "", "http address for external auth")
@@ -73,7 +74,6 @@ func getConn(srv *Conn) (cli *Conn, err error) {
 
 func reconnect(srv *Conn) (cli *Conn, err error) {
 	var res *http.Response
-	log.Printf("reconnect\n")
 	srv.retries += 1
 
 	buf := new(bytes.Buffer)
@@ -100,7 +100,11 @@ func reconnect(srv *Conn) (cli *Conn, err error) {
 	}
 
 	if res.StatusCode != 200 || res.Body == nil {
-		return nil, fmt.Errorf("failed to get auth data: error code not 200 or body nil")
+		if res.Body != nil {
+			io.Copy(buf, res.Body)
+		}
+		defer buf.Reset()
+		return nil, fmt.Errorf("failed to get auth data: code %d body %s", res.StatusCode, buf.String())
 	}
 	_, err = io.Copy(buf, res.Body)
 	if err != nil {
@@ -120,9 +124,9 @@ func reconnect(srv *Conn) (cli *Conn, err error) {
 
 	c, err := net.Dial("tcp", srv.Dst)
 	if err != nil {
-		if c != nil {
-			c.Close()
-		}
+		//if c != nil {
+		//	c.Close()
+		//}
 		return nil, err
 	}
 	cli = &Conn{c: c, Dst: srv.Dst, password: srv.password}
