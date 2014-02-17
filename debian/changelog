@@ -1,3 +1,9 @@
+vncproxy (0.0.6-1) stable; urgency=high
+
+  * new initscript
+
+ -- Alexandr Nikolacihev <qwiz@clodo.ru>  Mon, 17 Feb 2014 09:30:17 +0400
+
 vncproxy (0.0.5-1) stable; urgency=high
 
   * Autobuild.
