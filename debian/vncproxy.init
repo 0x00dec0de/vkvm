@@ -27,24 +27,25 @@ test -f $DAEMON || exit 0
 [ -r /etc/default/vncproxy ] && . /etc/default/vncproxy
 
 case "$1" in
-start)	log_daemon_msg "Starting vncproxy daemon" "vncproxy"
-        start_daemon -p $PIDFILE $DAEMON $EXTRA_OPTS
+start)  log_daemon_msg "Starting $DESC" "vncproxy"
+        start-stop-daemon --start -p $PIDFILE --quiet --name $NAME --exec $DAEMON --test > /dev/null || return 1
+        start-stop-daemon --start -p $PIDFILE --quiet --background --name $NAME --exec $DAEMON -- $VNCPROXY_OPTS || return 2
         log_end_msg $?
-	;;
-stop)	log_daemon_msg "Stopping vncproxy daemon" "vncproxy"
+        ;;
+stop)   log_daemon_msg "Stopping $DESC" "vncproxy"
         killproc -p $PIDFILE $DAEMON
         RETVAL=$?
         [ $RETVAL -eq 0 ] && [ -e "$PIDFILE" ] && rm -f $PIDFILE
         log_end_msg $RETVAL
         ;;
-restart) log_daemon_msg "Restarting vncproxy daemon" "vncproxy" 
+restart) log_daemon_msg "Restarting $DESC" "vncproxy"
         $0 stop
         $0 start
         ;;
 status)
         status_of_proc -p $PIDFILE $DAEMON $NAME && exit 0 || exit $?
         ;;
-*)	log_action_msg "Usage: /etc/init.d/vncproxy {start|stop|status|restart}"
+*)      log_action_msg "Usage: /etc/init.d/vncproxy {start|stop|status|restart}"
         exit 2
         ;;
 esac
