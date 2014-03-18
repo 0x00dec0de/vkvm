@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"code.google.com/p/go.net/websocket"
 	"crypto/des"
 	"encoding/base64"
 	"encoding/binary"
@@ -10,12 +9,17 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"os/exec"
+
+	"code.google.com/p/go.net/websocket"
 	//	"log/syslog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 )
 
 var (
@@ -29,6 +33,31 @@ var (
 
 //	l, _     = syslog.NewLogger(syslog.LOG_DEBUG|syslog.LOG_DAEMON, log.LstdFlags)
 )
+
+func fork() {
+	os.Chdir("/")
+
+	c := exec.Command("/usr/bin/vncproxy", "-lb="+*lbase64, "-tlscrt="+*tlscrt, "-tlskey="+*tlskey, "-authurl="+*authurl)
+	c.Dir = "/"
+	c.Stdin = nil
+	c.ExtraFiles = nil
+	c.Env = []string{"slave=true"}
+	c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	err := c.Start()
+	if err != nil {
+		println(err.Error())
+		os.Exit(1)
+	}
+
+	fl, err := os.OpenFile("/var/run/vncproxy.pid", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		println(err.Error())
+		os.Exit(1)
+	}
+	fmt.Fprintf(fl, "%d\n", c.Process.Pid)
+	fl.Close()
+}
 
 type Conn struct {
 	c         net.Conn
@@ -49,6 +78,19 @@ var p Proxy
 
 func main() {
 	flag.Parse()
+
+	daemon := true
+	env := os.Environ()
+	for _, v := range env {
+		if v == "slave=true" {
+			daemon = false
+		}
+	}
+
+	if daemon {
+		fork()
+		os.Exit(0)
+	}
 
 	http.Handle("/websockify", websocket.Server{Handler: wsHandler,
 		Handshake: func(ws *websocket.Config, req *http.Request) error {
