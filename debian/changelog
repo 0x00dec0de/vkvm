@@ -1,4 +1,4 @@
-vncproxy (0.0.6-1) stable; urgency=high
+vncproxy (0.0.7-1) stable; urgency=high
 
   * new initscript
 
