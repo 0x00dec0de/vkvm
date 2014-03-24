@@ -30,6 +30,8 @@ var (
 	tlskey   = flag.String("tlskey", "", "TLS path for key")
 	authurl  = flag.String("authurl", "", "http address for external auth")
 	authdata = flag.String("authdata", "", "http form values used in http auth")
+	pidfile  = flag.String("pidfile", "/var/run/vncproxy.pid", "pid file to use")
+	nofork   = flag.Bool("f", false, "run foreground")
 
 //	l, _     = syslog.NewLogger(syslog.LOG_DEBUG|syslog.LOG_DAEMON, log.LstdFlags)
 )
@@ -37,7 +39,7 @@ var (
 func fork() {
 	os.Chdir("/")
 
-	c := exec.Command("/usr/bin/vncproxy", "-lb="+*lbase64, "-tlscrt="+*tlscrt, "-tlskey="+*tlskey, "-authurl="+*authurl)
+	c := exec.Command("/usr/bin/vncproxy", "-lb="+*lbase64, "-tlscrt="+*tlscrt, "-tlskey="+*tlskey, "-authurl="+*authurl, "-pidfile="+*pidfile)
 	c.Dir = "/"
 	c.Stdin = nil
 	c.ExtraFiles = nil
@@ -50,7 +52,7 @@ func fork() {
 		os.Exit(1)
 	}
 
-	fl, err := os.OpenFile("/var/run/vncproxy.pid", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	fl, err := os.OpenFile(*pidfile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		println(err.Error())
 		os.Exit(1)
@@ -80,6 +82,9 @@ func main() {
 	flag.Parse()
 
 	daemon := true
+	if *nofork {
+		daemon = false
+	}
 	env := os.Environ()
 	for _, v := range env {
 		if v == "slave=true" {
@@ -100,7 +105,11 @@ func main() {
 		}})
 
 	p.conns = make(map[*Conn]*Conn, 4096)
-	log.Fatal(http.ListenAndServeTLS(*lbase64, *tlscrt, *tlskey, nil))
+	if *tlscrt == "" || *tlskey == "" {
+		log.Fatal(http.ListenAndServe(*lbase64, nil))
+	} else {
+		log.Fatal(http.ListenAndServeTLS(*lbase64, *tlscrt, *tlskey, nil))
+	}
 }
 
 func getConn(srv *Conn) (cli *Conn, err error) {
