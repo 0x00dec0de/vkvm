@@ -39,7 +39,7 @@ var (
 func fork() {
 	os.Chdir("/")
 
-	c := exec.Command("/usr/bin/vncproxy", "-lb="+*lbase64, "-tlscrt="+*tlscrt, "-tlskey="+*tlskey, "-authurl="+*authurl, "-pidfile="+*pidfile)
+	c := exec.Command("/usr/bin/vncproxy", "-lb="+*lbase64, "-tlscrt="+*tlscrt, "-tlskey="+*tlskey, "-authurl="+*authurl, "-pidfile="+*pidfile, "-authdata="+*authdata)
 	c.Dir = "/"
 	c.Stdin = nil
 	c.ExtraFiles = nil
